@@ -135,7 +135,7 @@ func startJVM(cmd *Cmd) {
     ```
 2. 在GOPATH/bin目录下就会生成ch01可执行文件
 3. 执行命令，测试效果如图
-   ![](https://gitee.com/jucunqi/img_store/raw/master/jvmgo/ch01/version.png)
+   ![version.png](https://s2.loli.net/2025/06/13/8N29SWTqMicge6Q.png)
 
 
 
@@ -307,7 +307,4 @@ func startJVM(cmd *Cmd) {
 
 3. 效果如图
 
-![](https://gitee.com/jucunqi/img_store/raw/master/jvmgo/ch02/ch02test.png)
-
-
-
+![ch02test.png](https://s2.loli.net/2025/06/13/Wut54loJMEVZ61a.png)
