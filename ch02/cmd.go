@@ -8,9 +8,10 @@ import (
 
 // 命令行选项和参数 结构题
 type Cmd struct {
-	helpFlag    bool
-	versionFlag bool
-	cpOption    string
+	helpFlag    bool   // -help
+	versionFlag bool   // -version
+	cpOption    string // -cp
+	xJreOption  string // -Xjre
 	class       string
 	args        []string
 }
@@ -27,6 +28,7 @@ func parseCmd() *Cmd {
 	flag.BoolVar(&cmd.versionFlag, "version", false, "print version and exit")
 	flag.BoolVar(&cmd.versionFlag, "v", false, "print version and exit")
 	flag.StringVar(&cmd.cpOption, "cp", "", "classpath")
+	flag.StringVar(&cmd.xJreOption, "Xjre", "", "path to jre")
 	flag.Parse()
 	args := flag.Args()
 	if len(args) > 0 {

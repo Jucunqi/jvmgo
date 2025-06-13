@@ -143,3 +143,171 @@ func startJVM(cmd *Cmd) {
 
 # 第二章 搜索class文件
 
+
+
+### 一、通过-Xjre命令获取jre路径，用于解析java类
+
+- 修改cmd.go接收xjre参数
+
+```go
+// 命令行选项和参数 结构题
+type Cmd struct {
+
+	...省略
+	// -Xjre
+	xJreOption string
+	...省略
+}
+
+// 解析命令行参数，并赋值到Cmd结构体
+func parseCmd() *Cmd {
+
+	cmd := &Cmd{}
+	flag.Usage = printUsage
+
+	// 接收命令行中的参数，并给cmd中的属性赋值
+	flag.BoolVar(&cmd.helpFlag, "help", false, "print help message")
+	flag.BoolVar(&cmd.helpFlag, "?", false, "print help message")
+	flag.BoolVar(&cmd.versionFlag, "version", false, "print version and exit")
+	flag.BoolVar(&cmd.versionFlag, "v", false, "print version and exit")
+	flag.StringVar(&cmd.cpOption, "cp", "", "classpath")
+  // 添加解析Xjre参数
+	flag.StringVar(&cmd.xJreOption, "Xjre", "", "path to jre")
+	flag.Parse()
+	....省略
+	return cmd
+}
+```
+
+
+
+### 二、定义Entry接口
+
+```go
+const pathListSeparator = string(os.PathListSeparator)
+
+type Entry interface {
+
+	// 读取类
+	readClass(name string) ([]byte, Entry, error)
+	// String 方法 ，类似java中toString 方法
+	String() string
+}
+
+// 获取Entry对象
+func newEntry(path string) Entry {
+
+	// 复合情况
+	if strings.Contains(path, pathListSeparator) {
+		return newCompositeEntry(path)
+	}
+
+	// 通配符情况
+	if strings.HasSuffix(path, "*") {
+		return newWildcardEntry(path)
+	}
+
+	// .jar .zip情况
+	if strings.HasSuffix(path, ".jar") || strings.HasSuffix(path, ".JAR") ||
+		strings.HasSuffix(path, ".zip") || strings.HasSuffix(path, ".ZIP") {
+		return newZipEntry(path)
+	}
+
+	// 目录情况
+	return newDirEntry(path)
+}
+```
+
+
+
+- Entry接口中定义了两个方法
+  - 读取类
+  - String 方法
+- 有4个实现类 - go语言中的实现类与java不同不需要implement关键字，只需要实现方法就可以
+  - CompositeEntry
+  - WildcardEntry 本质也是 CompositeEntry，没有创建新的结构体
+  - ZipEntry
+  - DirEntry
+  - 具体结构看代码中实现
+
+
+
+### 三、定义Classpath类
+
+部分代码如下
+
+```go
+package classpath
+
+import (
+	"os"
+	"path/filepath"
+)
+
+type Classpath struct {
+	bootClasspath Entry
+	extClasspath  Entry
+	userClasspath Entry
+}
+
+// 解析启动类和扩展类
+func (c *Classpath) parseBootAndExtClasspath(jreOption string) {
+
+	jreDir := getJreDir(jreOption)
+
+	// jre/lib/*
+	jreLibPath := filepath.Join(jreDir, "lib", "*")
+	c.bootClasspath = newWildcardEntry(jreLibPath)
+
+	// jre/lib/ext/*
+	jreExtPath := filepath.Join(jreDir, "lib", "ext", "*")
+	c.extClasspath = newWildcardEntry(jreExtPath)
+}
+
+// 解析用户类classpath
+func (c *Classpath) parseUserClasspath(cpOption string) {
+
+	if cpOption == "" {
+		cpOption = "."
+	}
+	c.userClasspath = newEntry(cpOption)
+}
+```
+
+
+
+### 四、修改main.go用于测试
+
+> 主要修改startJVM这个函数中的内容，实现输出class二进制内容
+
+```go
+func startJVM(cmd *Cmd) {
+	cp := classpath.Parse(cmd.xJreOption, cmd.cpOption)
+	fmt.Printf("classpath:%v class:%v args:%v\n",
+		cp, cmd.class, cmd.args)
+
+	classname := strings.ReplaceAll(cmd.class, ".", "/")
+	fmt.Println(classname)
+	data, _, err := cp.ReadClass(classname)
+	if err != nil {
+		fmt.Printf("Cound not find or load main class %s\n", cmd.class)
+		return
+	}
+	// 输出类的内容
+	fmt.Printf("class data:%v\n", data)
+}
+```
+
+
+
+### 五、项目install并执行命令测试
+
+1. `go install ./ch02/`
+2. `ch02 java.lang.Object`
+
+3. 效果如图
+
+![](https://gitee.com/jucunqi/img_store/raw/master/jvmgo/ch02/ch02test.png)
+
+
+
