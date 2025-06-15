@@ -145,7 +145,7 @@ func startJVM(cmd *Cmd) {
 
 
 
-### 一、通过-Xjre命令获取jre路径，用于解析java类
+## 一、通过-Xjre命令获取jre路径，用于解析java类
 
 - 修改cmd.go接收xjre参数
 
@@ -181,7 +181,7 @@ func parseCmd() *Cmd {
 
 
 
-### 二、定义Entry接口
+## 二、定义Entry接口
 
 ```go
 const pathListSeparator = string(os.PathListSeparator)
@@ -232,7 +232,7 @@ func newEntry(path string) Entry {
 
 
 
-### 三、定义Classpath类
+## 三、定义Classpath类
 
 部分代码如下
 
@@ -276,7 +276,7 @@ func (c *Classpath) parseUserClasspath(cpOption string) {
 
 
 
-### 四、修改main.go用于测试
+## 四、修改main.go用于测试
 
 > 主要修改startJVM这个函数中的内容，实现输出class二进制内容
 
@@ -300,7 +300,7 @@ func startJVM(cmd *Cmd) {
 
 
 
-### 五、项目install并执行命令测试
+## 五、项目install并执行命令测试
 
 1. `go install ./ch02/`
 2. `ch02 java.lang.Object`
@@ -308,3 +308,605 @@ func startJVM(cmd *Cmd) {
 3. 效果如图
 
 ![ch02test.png](https://s2.loli.net/2025/06/13/Wut54loJMEVZ61a.png)
+
+
+
+# 第三章 解析class文件
+
+## 一、解析class一般信息
+
+class文件的结构定义
+
+```
+ClassFile {
+    u4             magic;                  // 魔数，固定值 0xCAFEBABE
+    u2             minor_version;          // 次版本号
+    u2             major_version;          // 主版本号
+    u2             constant_pool_count;    // 常量池大小
+    cp_info        constant_pool[constant_pool_count-1]; // 常量池
+    u2             access_flags;           // 类访问标志
+    u2             this_class;             // 类本身的常量池索引
+    u2             super_class;            // 父类的常量池索引
+    u2             interfaces_count;       // 实现的接口数量
+    u2             interfaces[interfaces_count]; // 接口列表
+    u2             fields_count;           // 字段数量
+    field_info     fields[fields_count];   // 字段表
+    u2             methods_count;          // 方法数量
+    method_info    methods[methods_count]; // 方法表
+    u2             attributes_count;       // 属性数量
+    attribute_info attributes[attributes_count]; // 属性表
+}
+```
+
+
+
+### 1、封装ClassReader类，实现对class文件字节数组的读取方法
+
+```go 
+package classfile
+
+import "encoding/binary"
+
+// ClassReader 封装读取class字节流的方法
+type ClassReader struct {
+	data []byte
+}
+
+// 读取u1
+func (c *ClassReader) readUnit8() uint8 {
+	val := c.data[0]
+	c.data = c.data[1:]
+	return val
+}
+
+// 读取u2
+func (c *ClassReader) readUnit16() uint16 {
+	val := binary.BigEndian.Uint16(c.data)
+	c.data = c.data[2:]
+	return val
+}
+
+// 读取u4
+func (c *ClassReader) readUnit32() uint32 {
+	val := binary.BigEndian.Uint32(c.data)
+	c.data = c.data[4:]
+	return val
+}
+
+// 读取u8
+func (c *ClassReader) readUnit64() uint64 {
+	val := binary.BigEndian.Uint64(c.data)
+	c.data = c.data[8:]
+	return val
+}
+
+// 读取u2集合,集合的大小由开头的uint16数据指出
+func (c *ClassReader) readUnit16s() []uint16 {
+	length := c.readUnit16()
+	uint16s := make([]uint16, length)
+	for i := range uint16s {
+		uint16s[i] = c.readUnit16()
+	}
+	return uint16s
+}
+
+// 读取指定长度的字节数组
+func (c *ClassReader) readBytes(length uint32) []byte {
+	bytes := c.data[:length]
+	c.data = c.data[length:]
+	return bytes
+}
+```
+
+
+
+### 2、定义ClassFile类型，存储class数据
+
+```go
+package classfile
+
+import "fmt"
+
+type ClassFile struct {
+	magic        uint32          // 魔数
+	minorVersion uint16          // 小版本
+	majorVersion uint16          // 大版本
+	constantPool ConstantPool    // 常量池
+	accessFlags  uint16          // 访问标识符
+	thisClass    uint16          // 当前类
+	superClass   uint16          // 父类
+	interfaces   []uint16        //接口集合
+	fields       []*MemberInfo   // 字段集合
+	methods      []*MemberInfo   // 方法集合
+	attributes   []AttributeInfo // 属性集合
+}
+
+// Parse 解析方法
+func Parse(classData []byte) (cf *ClassFile, err error) {
+
+	defer func() {
+		if r := recover(); r != nil {
+			var ok bool
+			err, ok = r.(error)
+			if !ok {
+				err = fmt.Errorf("%v", r)
+			}
+		}
+	}()
+	cr := &ClassReader{classData}
+	cf = &ClassFile{}
+  // 关键方法
+	cf.read(cr)
+	return
+}
+
+// 读取
+func (c *ClassFile) read(reader *ClassReader) {
+	c.readAndCheckMagic(reader)
+	c.readAndCheckVersion(reader)
+  // 常量池
+	c.constantPool = readConstantPool(reader)
+	c.accessFlags = reader.readUnit16()
+	c.thisClass = reader.readUnit16()
+	c.superClass = reader.readUnit16()
+	c.interfaces = reader.readUnit16s()
+	c.fields = readMembers(reader, c.constantPool)
+	c.methods = readMembers(reader, c.constantPool)
+  // 属性
+	c.attributes = readAttributes(reader, c.constantPool)
+}
+
+// 读取并检查魔数
+func (c *ClassFile) readAndCheckMagic(reader *ClassReader) {
+
+	magic := reader.readUnit32()
+	if magic != 0xCAFEBABE {
+		panic("java.lang.ClassFormatError: magic!")
+	}
+}
+
+// 读取并检查版本号
+func (c *ClassFile) readAndCheckVersion(reader *ClassReader) {
+	c.minorVersion = reader.readUnit16()
+	c.majorVersion = reader.readUnit16()
+	switch c.majorVersion {
+	case 45:
+		return
+	case 46, 47, 48, 49, 50, 51, 52:
+		if c.minorVersion == 0 {
+			return
+		}
+	}
+	panic("java.lang.UnsupportedClassVersionError!")
+}
+
+// MinorVersion 返回小版本号
+func (c *ClassFile) MinorVersion() uint16 {
+	return c.minorVersion
+}
+
+// MajorVersion 返回大版本号
+func (c *ClassFile) MajorVersion() uint16 {
+	return c.majorVersion
+}
+
+// ConstantPool 返回常量池对象
+func (c *ClassFile) ConstantPool() ConstantPool {
+	return c.constantPool
+}
+
+// AccessFlags 返回访问标识符
+func (c *ClassFile) AccessFlags() uint16 {
+	return c.accessFlags
+}
+
+// Fields 返回属性
+func (c *ClassFile) Fields() []*MemberInfo {
+	return c.fields
+}
+
+// Methods 返回方法
+func (c *ClassFile) Methods() []*MemberInfo {
+	return c.methods
+}
+
+// ClassName 返回类名
+func (c *ClassFile) ClassName() string {
+
+	return c.constantPool.getClassName(c.thisClass)
+}
+
+// SuperClassName 返回父类名
+func (c *ClassFile) SuperClassName() string {
+	if c.superClass > 0 {
+		return c.constantPool.getClassName(c.superClass)
+	}
+	return "" // 只有java.lang.Object 没有父类
+}
+
+// InterfaceNames 返回接口名
+func (c *ClassFile) InterfaceNames() []string {
+
+	interfaceNames := make([]string, len(c.interfaces))
+	for i, cpIndex := range c.interfaces {
+		interfaceNames[i] = c.constantPool.getClassName(cpIndex)
+	}
+	return interfaceNames
+}
+```
+
+
+
+## 二、解析常量池
+
+### 1、常量池结构
+
+```txt
+cp_info {
+    u1 tag;       // 常量类型标识（1-21 之间的值）
+    u1 info[];    // 具体内容，格式取决于 tag
+}
+```
+
+### 2、定义常量池结构体
+
+存放常量池结构信息接口数组
+
+根据tag决定具体常量池的接口实现
+
+```go
+package classfile
+
+type ConstantPool []ConstantInfo
+
+// 读取常量池
+func readConstantPool(reader *ClassReader) ConstantPool {
+
+	cpCount := int(reader.readUnit16())
+	cp := make([]ConstantInfo, cpCount)
+	for i := 1; i < cpCount; i++ { // 索引从1开始
+		cp[i] = readConstantInfo(reader, cp)
+		switch cp[i].(type) {
+		case *ConstantLongInfo, *ConstantDoubleInfo:
+			i++ // 如果是Long 或者 Double 占两个位置
+		}
+	}
+	return cp
+}
+
+// 获取指定常量信息
+func (c ConstantPool) getConstantInfo(index uint16) ConstantInfo {
+
+	if cpInfo := c[index]; cpInfo != nil {
+		return cpInfo
+	}
+	panic("Invalid constant pool index!")
+}
+
+// 读取名称和类型 (字段、方法)
+func (c ConstantPool) getNameAndType(index uint16) (string, string) {
+
+	ntInfo := c.getConstantInfo(index).(*ConstantNameAndTypeInfo)
+	name := c.getUtf8(ntInfo.nameIndex)
+	_type := c.getUtf8(ntInfo.descriptorIndex)
+	return name, _type
+}
+
+// 读取类名
+func (c ConstantPool) getClassName(index uint16) string {
+	classInfo := c.getConstantInfo(index).(*ConstantClassInfo)
+	return c.getUtf8(classInfo.nameIndex)
+}
+
+// 读取utf8字符
+func (c ConstantPool) getUtf8(index uint16) string {
+	utf8Info := c.getConstantInfo(index).(*ConstantUtf8Info)
+	return utf8Info.str
+}
+```
+
+
+
+## 三、解析字段、方法
+
+### 1、字段结构
+
+```
+field_info {
+    u2             access_flags;       // 字段访问标志
+    u2             name_index;         // 字段名的常量池索引
+    u2             descriptor_index;   // 字段类型描述符的常量池索引
+    u2             attributes_count;   // 属性数量
+    attribute_info attributes[attributes_count]; // 属性表
+}
+```
+
+### 2、方法结构
+
+```
+method_info {
+    u2             access_flags;       // 通常包含 ACC_PUBLIC 和 ACC_ABSTRACT
+    u2             name_index;         // 方法名的常量池索引
+    u2             descriptor_index;   // 方法描述符的常量池索引
+    u2             attributes_count;   // 属性数量（抽象方法通常为 0）
+    attribute_info attributes[attributes_count]; // 属性表
+}
+```
+
+### 3、定义结构题，封装字段、方法数据
+
+```go
+package classfile
+
+type MemberInfo struct {
+	cp              ConstantPool    // 常量池
+	accessFlags     uint16          // 访问标识符
+	nameIndex       uint16          // 名称索引
+	descriptorIndex uint16          // 描述符索引
+	attributes      []AttributeInfo // 属性集合
+}
+
+// 读取Member集合
+func readMembers(reader *ClassReader, cp ConstantPool) []*MemberInfo {
+	memberCount := reader.readUnit16()
+	members := make([]*MemberInfo, memberCount)
+	for i := range members {
+		members[i] = readMember(reader, cp)
+	}
+	return members
+}
+
+// 读取一个Member
+func readMember(reader *ClassReader, cp ConstantPool) *MemberInfo {
+
+	return &MemberInfo{
+		cp:              cp,
+		accessFlags:     reader.readUnit16(),
+		nameIndex:       reader.readUnit16(),
+		descriptorIndex: reader.readUnit16(),
+		attributes:      readAttributes(reader, cp),
+	}
+}
+
+func (m *MemberInfo) AccessFlags() uint16 {
+	return m.accessFlags
+}
+func (m *MemberInfo) Name() string {
+	return m.cp.getUtf8(m.nameIndex)
+}
+func (m *MemberInfo) Descriptor() string {
+	return m.cp.getUtf8(m.descriptorIndex)
+}
+```
+
+
+
+## 四、解析属性
+
+### 1、属性结构
+
+#### 1）通用属性定义
+
+```
+attributes_count {
+    u2 attributes_count;    // 属性数量
+    attribute_info attributes[attributes_count]; // 属性数组
+}
+attribute_info {
+    u2 attribute_name_index;  // 指向常量池中的 UTF-8 字符串，表示属性名
+    u4 attribute_length;      // 属性长度（不包含前 6 字节）
+    u1 info[attribute_length]; // 属性内容，格式取决于属性名
+}
+```
+
+#### 2) Code属性
+
+```
+Code_attribute {
+    u2 attribute_name_index;    // 固定为 "Code"
+    u4 attribute_length;
+    u2 max_stack;               // 操作数栈最大深度
+    u2 max_locals;              // 局部变量表大小
+    u4 code_length;
+    u1 code[code_length];       // 字节码指令
+    u2 exception_table_length;
+    {
+        u2 start_pc;            // 异常处理开始位置
+        u2 end_pc;              // 异常处理结束位置
+        u2 handler_pc;          // 异常处理程序位置
+        u2 catch_type;          // 捕获的异常类型
+    } exception_table[exception_table_length];
+    u2 attributes_count;        // Code 属性的子属性
+    attribute_info attributes[attributes_count];
+}
+```
+
+#### 3) ConstantValue 属性
+
+```
+ConstantValue_attribute {
+    u2 attribute_name_index;    // 固定为 "ConstantValue"
+    u4 attribute_length;        // 固定为 2
+    u2 constantvalue_index;     // 指向常量池中的常量值
+}
+```
+
+#### 4) Exceptions 属性
+
+```
+Exceptions_attribute {
+    u2 attribute_name_index;    // 固定为 "Exceptions"
+    u4 attribute_length;
+    u2 number_of_exceptions;    // 异常数量
+    u2 exception_index_table[number_of_exceptions]; // 指向常量池中的异常类
+}
+```
+
+#### 5) LineNumberTable 属性
+
+```
+LineNumberTable_attribute {
+    u2 attribute_name_index;    // 固定为 "LineNumberTable"
+    u4 attribute_length;
+    u2 line_number_table_length;
+    {
+        u2 start_pc;            // 字节码起始位置
+        u2 line_number;         // 对应的源代码行号
+    } line_number_table[line_number_table_length];
+}
+```
+
+#### 6) LocalVariableTable 属性
+
+```
+LocalVariableTable_attribute {
+    u2 attribute_name_index;    // 固定为 "LocalVariableTable"
+    u4 attribute_length;
+    u2 local_variable_table_length;
+    {
+        u2 start_pc;            // 局部变量作用域起始位置
+        u2 length;              // 作用域长度
+        u2 name_index;          // 变量名在常量池中的索引
+        u2 descriptor_index;    // 类型描述符在常量池中的索引
+        u2 index;               // 局部变量表中的 Slot 索引
+    } local_variable_table[local_variable_table_length];
+}
+```
+
+#### 7) SourceFile 属性
+
+```
+SourceFile_attribute {
+    u2 attribute_name_index;    // 固定为 "SourceFile"
+    u4 attribute_length;        // 固定为 2
+    u2 sourcefile_index;        // 指向常量池中的源文件名
+}
+```
+
+### 2、定义结构体封装属性信息
+
+```
+package classfile
+
+type AttributeInfo interface {
+	readInfo(reader *ClassReader)
+}
+
+func readAttributes(reader *ClassReader, cp ConstantPool) []AttributeInfo {
+
+	attributeCount := reader.readUnit16()
+	attributes := make([]AttributeInfo, attributeCount)
+	for i := range attributes {
+		attributes[i] = readAttribute(reader, cp)
+	}
+	return attributes
+}
+
+func readAttribute(reader *ClassReader, cp ConstantPool) AttributeInfo {
+
+	attrNameIndex := reader.readUnit16()
+	attrName := cp.getUtf8(attrNameIndex)
+	attrLen := reader.readUnit32()
+	attribute := newAttribute(attrName, attrLen, cp)
+	attribute.readInfo(reader)
+	return attribute
+}
+
+func newAttribute(attrName string, attrLen uint32, cp ConstantPool) AttributeInfo {
+
+	switch attrName {
+	case "Code":
+		return &CodeAttribute{cp: cp}
+	case "ConstantValue":
+		return &ConstantValueAttribute{}
+	//case "Depreated":
+	//	return &DeprecatedAttribute{}
+	case "Exceptions":
+		return &ExceptionAttribute{}
+	case "LineNumberTable":
+		return &LineNumberTableAttribute{}
+	case "LocalVariableTable":
+		return &LocalVariableTableAttribute{}
+	case "SourceFile":
+		return &SourceFileAttribute{cp: cp}
+	case "Synthetic":
+		return &SyntheticAttribute{}
+	default:
+		return &UnparsedAttribute{attrName, attrLen, nil}
+	}
+}
+```
+
+## 五、测试本章代码
+
+### 1、修改main.go中startJvm函数
+
+```go
+// 程序执行入口
+func main() {
+
+	// 获取cmd信息
+	//cmd := parseCmd()
+	cmd := &Cmd{class: "java.lang.String"}
+	// 根据cmd参数决定后面的执行内容
+	if cmd.versionFlag {
+		fmt.Println("version 0.0.2")
+	} else if cmd.helpFlag || cmd.class == "" {
+		printUsage()
+	} else {
+		startJVM(cmd)
+	}
+}
+
+func startJVM(cmd *Cmd) {
+	cp := classpath.Parse(cmd.xJreOption, cmd.cpOption)
+	fmt.Printf("classpath:%v class:%v args:%v\n",
+		cp, cmd.class, cmd.args)
+
+	classname := strings.ReplaceAll(cmd.class, ".", "/")
+	fmt.Println(classname)
+	class := loadClass(classname, cp)
+	printClass(class)
+}
+
+func printClass(cf *classfile.ClassFile) {
+	fmt.Printf("version: %v.%v\n", cf.MajorVersion(), cf.MinorVersion())
+	fmt.Printf("constants count: *s", len(cf.ConstantPool()))
+	fmt.Printf("access flag: 0x%x\n", cf.AccessFlags())
+	fmt.Printf("this class: %s\n", cf.ClassName())
+	fmt.Printf("super class: %s\n", cf.SuperClassName())
+	fmt.Printf("interfaces name: %s\n", cf.InterfaceNames())
+	fmt.Printf("filed count: %s\n", len(cf.Fields()))
+	for _, field := range cf.Fields() {
+		fmt.Printf("%s\n", field.Name())
+	}
+	fmt.Printf("method count: %s\n", len(cf.Methods()))
+	for _, method := range cf.Methods() {
+		fmt.Printf("%s\n", method.Name())
+	}
+}
+
+func loadClass(classname string, cp *classpath.Classpath) *classfile.ClassFile {
+	data, _, err := cp.ReadClass(classname)
+	if err != nil {
+		fmt.Printf("Cound not find or load main class %s\n", classname)
+		return nil
+	}
+	cf, err := classfile.Parse(data)
+	if err != nil {
+		panic(err)
+	}
+	return cf
+}
+```
+
+
+
+### 2、项目install并执行命令测试
+
+1. `go install ./ch02/`
+2. `ch02 java.lang.String`
+
+3. 效果如图
+
+![ch03test.png](https://s2.loli.net/2025/06/15/JBvAEgSq6ZNmknT.png)
