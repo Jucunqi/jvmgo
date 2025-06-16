@@ -633,7 +633,7 @@ method_info {
 }
 ```
 
-### 3、定义结构题，封装字段、方法数据
+### 3、定义结构体，封装字段、方法数据
 
 ```go
 package classfile
@@ -904,9 +904,362 @@ func loadClass(classname string, cp *classpath.Classpath) *classfile.ClassFile {
 
 ### 2、项目install并执行命令测试
 
-1. `go install ./ch02/`
+1. `go install ./ch03/`
 2. `ch02 java.lang.String`
 
 3. 效果如图
 
 ![ch03test.png](https://s2.loli.net/2025/06/15/JBvAEgSq6ZNmknT.png)
+
+
+
+# 第四章 运行时数据区
+
+### 一、示意图
+
+![ch04rtdata.png](https://s2.loli.net/2025/06/16/xGZ468yRrdO3UCY.png)
+
+### 二、数据类型
+
+1. 基本数据类型
+   1. 存放数据本身
+2. 引用数据类型
+   1. 存放引用指针
+
+![ch04datatype.png](https://s2.loli.net/2025/06/16/l7cwapX8zktA9fU.png)
+
+
+
+### 三、实现运行时数据区
+
+#### 1、线程Thread
+
+```go
+package rtda
+
+type Thread struct {
+	pc    int
+	stack *Stack
+}
+
+func NewThread() *Thread {
+	return &Thread{stack: newStack(1024)}
+}
+
+func (t *Thread) PC() int {
+	return t.pc
+}
+func (t *Thread) SetPC(pc int) {
+	t.pc = pc
+}
+
+func (t *Thread) PushFrame(frame *Frame) {
+	t.stack.push(frame)
+}
+
+func (t *Thread) PopFrame() *Frame {
+	return t.stack.pop()
+}
+func (t *Thread) CurrentFrame() *Frame {
+	return t.stack.top()
+}
+
+```
+
+
+
+#### 2、栈
+
+```go
+package rtda
+
+type Stack struct {
+	maxSize uint
+	size    uint
+	_top    *Frame
+}
+
+func (s *Stack) push(frame *Frame) {
+
+	if s.size >= s.maxSize {
+		panic("java.lang.StackOverflowError")
+	}
+	if s._top != nil {
+		frame.lower = s._top
+	}
+	s._top = frame
+	s.size++
+}
+
+func (s *Stack) pop() *Frame {
+
+	if s._top == nil {
+		panic("jvm stack is empty")
+	}
+	top := s._top
+	s._top = top.lower
+	s.size--
+	return top
+
+}
+
+func (s *Stack) top() *Frame {
+
+	if s.top() == nil {
+		panic("jvm stack is empty!")
+	}
+	return s._top
+}
+
+func newStack(size uint) *Stack {
+	return &Stack{maxSize: size}
+}
+```
+
+#### 3、栈帧
+
+```go
+package rtda
+
+type Frame struct {
+	lower        *Frame
+	localVars    LocalVars
+	operandStack *OperandStack
+}
+
+func NewFrame(maxLocals, maxStack uint) *Frame {
+	return &Frame{localVars: newLocalVars(maxLocals),
+		operandStack: newOperandStack(maxStack)}
+}
+
+func (f *Frame) LocalVars() LocalVars {
+	return f.localVars
+}
+
+func (f *Frame) OperandStack() *OperandStack {
+	return f.operandStack
+}
+```
+
+#### 4、局部变量表
+
+```go
+package rtda
+
+import "math"
+
+type LocalVars []Slot
+
+func newLocalVars(maxSize uint) LocalVars {
+
+	if maxSize > 0 {
+		return make([]Slot, maxSize)
+	}
+	return nil
+}
+
+func (l LocalVars) SetInt(index uint, val int32) {
+
+	l[index].num = val
+}
+
+func (l LocalVars) GetInt(index uint) int32 {
+
+	return l[index].num
+}
+
+func (l LocalVars) SetFloat(index uint, val float32) {
+
+	bits := math.Float32bits(val)
+	l[index].num = int32(bits)
+}
+
+func (l LocalVars) GetFloat(index uint) float32 {
+
+	bits := l[index].num
+	return math.Float32frombits(uint32(bits))
+}
+
+func (l LocalVars) SetLong(index uint, val int64) {
+
+	l[index].num = int32(val)
+	l[index+1].num = int32(val >> 32)
+}
+
+func (l LocalVars) GetLong(index uint) int64 {
+
+	low := uint32(l[index].num)
+	high := uint32(l[index+1].num)
+	return int64(high)<<32 | int64(low)
+}
+
+func (l LocalVars) SetDouble(index uint, val float64) {
+
+	bits := math.Float64bits(val)
+	l.SetLong(index, int64(bits))
+}
+
+func (l LocalVars) GetDouble(index uint) float64 {
+
+	long := l.GetLong(index)
+	bits := uint64(long)
+	return math.Float64frombits(bits)
+}
+func (l LocalVars) SetRef(index uint, val *Object) {
+
+	l[index].ref = val
+}
+
+func (l LocalVars) GetRef(index uint) *Object {
+
+	return l[index].ref
+}
+```
+
+#### 5、操作数栈
+
+```go
+package rtda
+
+import "math"
+
+type OperandStack struct {
+	size  uint
+	slots []Slot
+}
+
+func newOperandStack(stackSize uint) *OperandStack {
+	if stackSize > 0 {
+		return &OperandStack{slots: make([]Slot, stackSize)}
+	}
+	return nil
+}
+
+func (o *OperandStack) PushInt(val int32) {
+	o.slots[o.size].num = val
+	o.size++
+}
+
+func (o *OperandStack) PopInt() int32 {
+
+	o.size--
+	return o.slots[o.size].num
+}
+
+func (o *OperandStack) PushFloat(val float32) {
+	bits := math.Float32bits(val)
+	o.slots[o.size].num = int32(bits)
+	o.size++
+}
+
+func (o *OperandStack) PopFloat() float32 {
+
+	o.size--
+	bits := uint32(o.slots[o.size].num)
+	return math.Float32frombits(bits)
+}
+func (o *OperandStack) PushLong(val int64) {
+	low := int32(val)
+	o.slots[o.size].num = low
+	o.size++
+	high := int32(val >> 32)
+	o.slots[o.size].num = high
+	o.size++
+}
+
+func (o *OperandStack) PopLong() int64 {
+
+	o.size -= 2
+	low := uint32(o.slots[o.size].num)
+	high := uint32(o.slots[o.size+1].num)
+	return int64(high)<<32 | int64(low)
+}
+func (o *OperandStack) PushDouble(val float64) {
+	bits := math.Float64bits(val)
+	o.PushLong(int64(bits))
+}
+
+func (o *OperandStack) PopDouble() float64 {
+
+	bits := uint64(o.PopLong())
+	return math.Float64frombits(bits)
+}
+
+func (o *OperandStack) PushRef(val *Object) {
+
+	o.slots[o.size].ref = val
+	o.size++
+}
+
+func (o *OperandStack) PopRef() *Object {
+
+	o.size--
+	ref := o.slots[o.size].ref
+	o.slots[o.size].ref = nil
+	return ref
+}
+```
+
+## 四、测试本章代码
+
+### 1、修改main.go中startJvm函数
+
+```go
+func startJVM(cmd *Cmd) {
+	//cp := classpath.Parse(cmd.xJreOption, cmd.cpOption)
+	//fmt.Printf("classpath:%v class:%v args:%v\n",
+	//	cp, cmd.class, cmd.args)
+	//
+	//classname := strings.ReplaceAll(cmd.class, ".", "/")
+	//fmt.Println(classname)
+	//class := loadClass(classname, cp)
+	//printClass(class)
+	frame := rtda.NewFrame(100, 100)
+	testLocalVars(frame.LocalVars())
+	testOperandStack(frame.OperandStack())
+}
+
+func testOperandStack(ops *rtda.OperandStack) {
+	ops.PushInt(100)
+	ops.PushInt(-100)
+	ops.PushLong(2997924580)
+	ops.PushLong(-2997924580)
+	ops.PushFloat(3.1415926)
+	ops.PushDouble(2.71828182845)
+	ops.PushRef(nil)
+	println(ops.PopInt())
+	println(ops.PopInt())
+	println(ops.PopLong())
+	println(ops.PopLong())
+	println(ops.PopFloat())
+	println(ops.PopDouble())
+	println(ops.PopRef())
+}
+
+func testLocalVars(vars rtda.LocalVars) {
+	vars.SetInt(0, 100)
+	vars.SetInt(1, -100)
+	vars.SetLong(2, 2997924580)
+	vars.SetLong(4, -2997924580)
+	vars.SetFloat(6, 3.1415926)
+	vars.SetDouble(7, 2.71828182845)
+	vars.SetRef(9, nil)
+	println(vars.GetInt(0))
+	println(vars.GetInt(1))
+	println(vars.GetLong(2))
+	println(vars.GetLong(4))
+	println(vars.GetFloat(6))
+	println(vars.GetDouble(7))
+	println(vars.GetRef(9))
+
+}
+```
+
+### 2、项目install并执行命令测试
+
+1. `go install ./ch04/`
+2. `ch04`
+
+3. 效果如图
+
+![ch04test.png](https://s2.loli.net/2025/06/16/XaMuLFisnpkEbZf.png)
