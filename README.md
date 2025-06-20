@@ -1896,3 +1896,5 @@ public class GuessTest {
 因为没有实现return指令，所以会报错，但是局部变量表中已经可以看到5050我们想要的答案了，结果如图
 
 ![ch05_test.png](https://s2.loli.net/2025/06/20/3kzrIRVoiEft6yC.png)
+
+test\ntest
