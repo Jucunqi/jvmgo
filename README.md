@@ -1263,3 +1263,636 @@ func testLocalVars(vars rtda.LocalVars) {
 3. 效果如图
 
 ![ch04test.png](https://s2.loli.net/2025/06/16/XaMuLFisnpkEbZf.png)
+
+
+
+# 第五章 指令集和解释器
+
+
+
+## 一、常量池和tag对应关系
+
+| Tag值（十进制） | Tag 值（十六进制） | 助记符                      | 说明                                  |
+| --------------- | ------------------ | --------------------------- | ------------------------------------- |
+| 1               | 0x01               | CONSTANT_Utf8               | UTF-8 编码的字符串常量                |
+| 3               | 0x03               | CONSTANT_Integer            | 整型常量                              |
+| 4               | 0x04               | CONSTANT_Float              | 浮点型常量                            |
+| 5               | 0x05               | CONSTANT_Long               | 长整型常量（占两个条目）              |
+| 6               | 0x06               | CONSTANT_Double             | 双精度浮点型常量（占两个条目）        |
+| 7               | 0x07               | CONSTANT_Class              | 类或接口的符号引用                    |
+| 8               | 0x08               | CONSTANT_String             | 字符串类型常量的引用                  |
+| 9               | 0x09               | CONSTANT_Fieldref           | 字段（类变量或实例变量）的符号引用    |
+| 10              | 0x0a               | CONSTANT_Methodref          | 类方法的符号引用                      |
+| 11              | 0x0b               | CONSTANT_InterfaceMethodref | 接口方法的符号引用                    |
+| 12              | 0x0c               | CONSTANT_NameAndType        | 字段或方法的名称和描述符的符号引用    |
+| 15              | 0x0f               | CONSTANT_MethodHandle       | 方法句柄（Java 7+）                   |
+| 16              | 0x10               | CONSTANT_MethodType         | 方法类型（Java 7+）                   |
+| 18              | 0x12               | CONSTANT_InvokeDynamic      | 动态调用点（Java 7+，用于 Lambda 等） |
+| 19              | 0x13               | CONSTANT_Module             | 模块（Java 9+）                       |
+| 20              | 0x14               | CONSTANT_Package            | 包（Java 9+）                         |
+
+
+
+### 结构定义
+
+- `CONSTANT_Methodref_info` 的结构由三部分组成：
+
+```txt
+CONSTANT_Methodref_info {
+    u1 tag;                // 标记位，固定值 0x0A (十进制10)
+    u2 class_index;        // 指向 CONSTANT_Class_info 的索引，表示方法所属的类
+    u2 name_and_type_index; // 指向 CONSTANT_NameAndType_info 的索引，表示方法的名称和描述符
+}
+```
+
+- `CONSTANT_Class_info` 的结构由两部分组成
+
+```txt
+CONSTANT_Class_info {
+    u1 tag;             // 标记位，固定值 0x07 (十进制7)
+    u2 name_index;      // 指向 CONSTANT_Utf8_info 的索引，表示类或接口的全限定名
+}
+```
+
+- `CONSTANT_Utf8_info` 的结构由三部分组成
+
+```txt
+CONSTANT_Utf8_info {
+    u1 tag;             // 标记位，固定值 0x01 (十进制1)
+    u2 length;          // UTF-8 编码的字节长度
+    u1 bytes[length];   // UTF-8 编码的字节数据
+}
+```
+
+- `CONSTANT_NameAndType` 的结构如下
+
+```txt
+CONSTANT_NameAndType_info {
+    u1 tag;          // 标记值，固定为 0x0C
+    u2 name_index;   // 指向常量池中的 UTF-8 字符串（方法/字段名）
+    u2 descriptor_index;  // 指向常量池中的 UTF-8 字符串（描述符）
+}
+```
+
+
+
+## 二、AccessFlags结构定义
+
+![](https://img2018.cnblogs.com/i-beta/1911569/202001/1911569-20200105193407734-486225375.png)
+
+
+
+## 三、字段表定义
+
+```txt
+field_info {
+    u2             access_flags;       // 字段访问标志
+    u2             name_index;         // 字段名索引
+    u2             descriptor_index;   // 字段描述符索引
+    u2             attributes_count;   // 属性数量
+    attribute_info attributes[attributes_count]; // 属性表
+}
+```
+
+
+
+## 四、方法表定义
+
+```txt
+method_info {
+    u2             access_flags;       // 方法访问标志
+    u2             name_index;         // 方法名索引
+    u2             descriptor_index;   // 方法描述符索引
+    u2             attributes_count;   // 属性数量
+    attribute_info attributes[attributes_count]; // 属性表
+}
+```
+
+
+
+## 五、属性表定义
+
+```txt
+attribute_info {
+    u2 attribute_name_index; // 属性名索引
+    u4 attribute_length;     // 属性长度
+    u1 info[attribute_length]; // 属性内容（不同属性结构不同）
+}
+
+// 常见属性示例：Code 属性（方法字节码）
+Code_attribute {
+    u2 attribute_name_index; // 固定为 "Code"
+    u4 attribute_length;
+    u2 max_stack;            // 操作数栈最大深度
+    u2 max_locals;           // 局部变量表大小
+    u4 code_length;          // 字节码长度
+    u1 code[code_length];    // 字节码
+    u2 exception_table_length; // 异常表长度
+    exception_table_entry exception_table[exception_table_length]; // 异常表
+    u2 attributes_count;     // 子属性数量
+    attribute_info attributes[attributes_count]; // 子属性表
+}
+```
+
+
+
+## 六、解释指令
+
+
+
+### 1、nop指令
+
+```go
+func (n *Nop) Execute(frame *rtda.Frame) {
+	// noting to do
+}
+```
+
+
+
+### 2、const指令
+
+```go
+type ACONST_NULL struct {
+	base.NoOperandsInstruction
+}
+type DCONST_0 struct {
+	base.NoOperandsInstruction
+}
+type DCONST_1 struct {
+	base.NoOperandsInstruction
+}
+....
+```
+
+
+
+### 3、bipush和sipush命令
+
+```go
+// 常量放入操作数栈
+type BIPUSH struct {
+	val int8
+}
+
+type SIPUSH struct {
+	val int16
+}
+
+```
+
+
+
+### 4、加载指令
+
+```go
+type ILOAD struct {
+	base.Index8Instruction
+}
+type ILOAD_0 struct {
+	base.NoOperandsInstruction
+}
+
+type ILOAD_1 struct {
+	base.NoOperandsInstruction
+}
+type ILOAD_2 struct {
+	base.NoOperandsInstruction
+}
+type ILOAD_3 struct {
+	base.NoOperandsInstruction
+}
+```
+
+
+
+### 5、存储指令
+
+```go
+type ISTORE struct {
+	base.Index8Instruction
+}
+
+type ISTORE_0 struct {
+	base.NoOperandsInstruction
+}
+type ISTORE_1 struct {
+	base.NoOperandsInstruction
+}
+type ISTORE_2 struct {
+	base.NoOperandsInstruction
+}
+type ISTORE_3 struct {
+	base.NoOperandsInstruction
+}
+```
+
+
+
+### 6、栈指令
+
+```go
+func (o *OperandStack) PushSlot(slot Slot) {
+	o.slots[o.size] = slot
+	o.size++
+}
+
+func (o *OperandStack) PopSlot() Slot {
+	o.size--
+	return o.slots[o.size]
+}
+```
+
+
+
+### 7、pop和pop2指令
+
+```go
+type POP struct {
+	base.NoOperandsInstruction
+}
+
+type POP2 struct {
+	base.NoOperandsInstruction
+}
+```
+
+
+
+### 8、dup指令
+
+```go
+// DUP
+/*
+bottom -> top
+[...][c][b][a]
+
+	\_
+	  |
+	  V
+
+[...][c][b][a][a]
+*/
+type DUP struct {
+	base.NoOperandsInstruction
+}
+```
+
+
+
+### 9、swap指令
+
+```go
+// SWAP the top two operand stack values
+type SWAP struct {
+	base.NoOperandsInstruction
+}
+
+// Execute
+/*
+bottom -> top
+[...][c][b][a]
+          \/
+          /\
+         V  V
+[...][c][a][b]
+*/
+func (S *SWAP) Execute(frame *rtda.Frame) {
+
+	stack := frame.OperandStack()
+	slot1 := stack.PopSlot()
+	slot2 := stack.PopSlot()
+	stack.PushSlot(slot2)
+	stack.PushSlot(slot1)
+}
+
+```
+
+
+
+### 10、数字指令
+
+#### 1、算数指令
+
+```go
+// Add double
+type DADD struct{ base.NoOperandsInstruction }
+type FADD struct{ base.NoOperandsInstruction }
+type IADD struct{ base.NoOperandsInstruction }
+type LADD struct{ base.NoOperandsInstruction }
+```
+
+
+
+#### 2、位移指令
+
+```go
+// ISHL int左移
+type ISHL struct {
+	base.NoOperandsInstruction
+}
+
+// ISHR int算数右移
+type ISHR struct {
+	base.NoOperandsInstruction
+}
+```
+
+
+
+#### 3、布尔运算指令
+
+```go
+type IAND struct {
+	base.NoOperandsInstruction
+}
+
+type LAND struct {
+	base.NoOperandsInstruction
+}
+```
+
+
+
+#### 4、iinc指令
+
+```go
+// IINC 从局部变量表中的int变量增加常量值，局部变量表索引和常量值都由指令的操作数提供
+type IINC struct {
+	Index uint
+	Const int32
+}
+```
+
+
+
+### 11、类型转换指令
+
+```go
+type D2F struct {
+	base.NoOperandsInstruction
+}
+type D2I struct {
+	base.NoOperandsInstruction
+}
+type D2L struct {
+	base.NoOperandsInstruction
+}
+```
+
+
+
+### 12、比较指令
+
+#### 1、lcmp
+
+```go
+type LCMP struct {
+	base.NoOperandsInstruction
+}
+
+func (L *LCMP) Execute(frame *rtda.Frame) {
+
+	stack := frame.OperandStack()
+	v2 := stack.PopLong()
+	v1 := stack.PopLong()
+	result := 0
+	if v1 > v2 {
+		result = 1
+	} else if v1 < v2 {
+		result = -1
+	}
+
+	stack.PushInt(int32(result))
+}
+```
+
+
+
+#### 2、fcmp<op>
+
+```go
+// Compare float
+type FCMPG struct{ base.NoOperandsInstruction }
+
+func (self *FCMPG) Execute(frame *rtda.Frame) {
+	_fcmp(frame, true)
+}
+
+type FCMPL struct{ base.NoOperandsInstruction }
+
+func (self *FCMPL) Execute(frame *rtda.Frame) {
+	_fcmp(frame, false)
+}
+```
+
+
+
+#### 3、if<cond>指令
+
+```go
+type IF_ACMPEQ struct {
+	base.BranchInstruction
+}
+type IF_ACMPNE struct {
+	base.BranchInstruction
+}
+
+func (I *IF_ACMPEQ) Execute(frame *rtda.Frame) {
+
+	stack := frame.OperandStack()
+	v2 := stack.PopRef()
+	v1 := stack.PopRef()
+	if v1 == v2 {
+		base.Branch(frame, I.Offset)
+	}
+}
+
+func (I *IF_ACMPNE) Execute(frame *rtda.Frame) {
+
+	stack := frame.OperandStack()
+	v2 := stack.PopRef()
+	v1 := stack.PopRef()
+	if v1 != v2 {
+		base.Branch(frame, I.Offset)
+	}
+}
+```
+
+
+
+### 13、控制指令
+
+#### 1、goto指令
+
+```go
+type GOTO struct {
+	base.BranchInstruction
+}
+
+func (G *GOTO) Execute(frame *rtda.Frame) {
+	base.Branch(frame, G.Offset)
+}
+```
+
+
+
+#### 2、tableswitch指令
+
+```go
+type TABLE_SWITCH struct {
+	defaultOffset int32
+	low           int32
+	high          int32
+	jumpOffsets   []int32
+}
+
+func (T *TABLE_SWITCH) FetchOperands(reader *base.BytecodeReader) {
+
+	reader.SkipPadding()
+	T.defaultOffset = reader.ReadInt32()
+	T.low = reader.ReadInt32()
+	T.high = reader.ReadInt32()
+	count := T.high - T.low + 1
+	T.jumpOffsets = reader.ReadInt32s(count)
+}
+
+func (T *TABLE_SWITCH) Execute(frame *rtda.Frame) {
+
+	stack := frame.OperandStack()
+	i := stack.PopInt()
+	if i >= T.low && i <= T.high {
+		base.Branch(frame, int(T.jumpOffsets[i-T.low]))
+	} else {
+		base.Branch(frame, int(T.defaultOffset))
+	}
+}
+```
+
+
+
+#### 3、lookupswitch指令
+
+```go
+type LOOKUP_SWITCH struct {
+	defaultOffset int32
+	npairs        int32
+	matchOffsets  []int32
+}
+
+func (L *LOOKUP_SWITCH) FetchOperands(reader *base.BytecodeReader) {
+	L.defaultOffset = reader.ReadInt32()
+	L.npairs = reader.ReadInt32()
+	L.matchOffsets = reader.ReadInt32s(L.npairs * 2)
+}
+
+func (L *LOOKUP_SWITCH) Execute(frame *rtda.Frame) {
+	stack := frame.OperandStack()
+	key := stack.PopInt()
+	for i := int32(0); i < L.npairs*2; i += 2 {
+		value := L.matchOffsets[i]
+		if value == key {
+			base.Branch(frame, int(L.matchOffsets[i+1]))
+			return
+		}
+	}
+	base.Branch(frame, int(L.defaultOffset))
+}
+```
+
+
+
+### 14、wide指令
+
+这是一个扩展指令，加载类指令、存储类指令、ref指令和iinc指令需要按索引访问局部变量表，索引一u1存储在字节码中，如果出现超过u1能存储的256，那么就需要扩展，原来一个字节的扩展为2字节
+
+
+
+## 七、解释器
+
+### 1、创建工厂类，根据不同tag获取不同的指令对象
+
+```go
+func NewInstruction(opcode byte) base.Instruction {
+	switch opcode {
+	case 0x00:
+		return nop
+	case 0x01:
+		return aconst_null
+	case 0x02:
+		return iconst_m1
+	case 0x03:
+		return iconst_0
+	case 0x04:
+		return iconst_1
+    .......
+```
+
+### 2、interpret方法
+
+```
+func interpret(methodInfo *classfile.MemberInfo) {
+
+    // 获取方法中的code属性
+    codeAttr := methodInfo.CodeAttribute()
+
+    // 从属性中解析最大局部变量表，最大栈，code属性
+    maxLocals := codeAttr.MaxLocals()
+    maxStack := codeAttr.MaxStack()
+    bytecode := codeAttr.Code()
+
+    // 创建一个线程
+    thread := rtda.NewThread()
+
+    // 创建一个栈帧
+    frame := thread.NewFrame(uint(maxLocals), uint(maxStack))
+
+    // 栈帧压入栈
+    thread.PushFrame(frame)
+
+    // 异常处理
+    defer catchErr(frame)
+
+    // 循环解析指令并执行
+    loop(thread, bytecode)
+}
+```
+
+
+
+## 八、测试
+
+### 1、编写java代码
+
+```java
+/**
+ * 提供java代码  - 1-100 求和
+ *
+ * @author : jucunqi
+ * @since : 2025/6/20
+ */
+public class GuessTest {
+
+    public static void main(String[] args) {
+
+        int result = 0;
+        for (int i = 1; i <= 100 ; i++) {
+            result += i;
+        }
+    }
+}
+```
+
+
+
+手动解析了一下字节码
+
+![ch05_mannualanalyze.png](https://s2.loli.net/2025/06/20/slR6HYp4CwEQJDT.png)
+
+
+
+### 2、使用go测试
+
+因为没有实现return指令，所以会报错，但是局部变量表中已经可以看到5050我们想要的答案了，结果如图
+
+![ch05_test.png](https://s2.loli.net/2025/06/20/3kzrIRVoiEft6yC.png)
