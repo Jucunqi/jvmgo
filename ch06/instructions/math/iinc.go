@@ -1,8 +1,8 @@
 package math
 
 import (
-	"github.com/Jucunqi/jvmgo/ch05/instructions/base"
-	"github.com/Jucunqi/jvmgo/ch05/rtda"
+	"github.com/Jucunqi/jvmgo/ch06/instructions/base"
+	"github.com/Jucunqi/jvmgo/ch06/rtda"
 )
 
 // IINC 从局部变量表中的int变量增加常量值，局部变量表索引和常量值都由指令的操作数提供

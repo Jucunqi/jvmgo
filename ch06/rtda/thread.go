@@ -1,5 +1,7 @@
 package rtda
 
+import "github.com/Jucunqi/jvmgo/ch06/rtda/heap"
+
 // Thread
 /*
 JVM
@@ -37,6 +39,6 @@ func (t *Thread) CurrentFrame() *Frame {
 	return t.stack.top()
 }
 
-func (t *Thread) NewFrame(locals uint, stack uint) *Frame {
-	return newFrame(t, locals, stack)
+func (t *Thread) NewFrame(method *heap.Method) *Frame {
+	return newFrame(t, method)
 }

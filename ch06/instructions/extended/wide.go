@@ -1,11 +1,11 @@
 package extended
 
 import (
-	"github.com/Jucunqi/jvmgo/ch05/instructions/base"
-	"github.com/Jucunqi/jvmgo/ch05/instructions/loads"
-	"github.com/Jucunqi/jvmgo/ch05/instructions/math"
-	"github.com/Jucunqi/jvmgo/ch05/instructions/stores"
-	"github.com/Jucunqi/jvmgo/ch05/rtda"
+	"github.com/Jucunqi/jvmgo/ch06/instructions/base"
+	"github.com/Jucunqi/jvmgo/ch06/instructions/loads"
+	"github.com/Jucunqi/jvmgo/ch06/instructions/math"
+	"github.com/Jucunqi/jvmgo/ch06/instructions/stores"
+	"github.com/Jucunqi/jvmgo/ch06/rtda"
 )
 
 type WIDE struct {

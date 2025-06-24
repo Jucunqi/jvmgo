@@ -49,3 +49,13 @@ func (m *MemberInfo) CodeAttribute() *CodeAttribute {
 	}
 	return nil
 }
+
+func (m *MemberInfo) ConstantValueAttribute() *ConstantValueAttribute {
+	for _, attr := range m.attributes {
+		switch attr.(type) {
+		case *ConstantValueAttribute:
+			return attr.(*ConstantValueAttribute)
+		}
+	}
+	return nil
+}

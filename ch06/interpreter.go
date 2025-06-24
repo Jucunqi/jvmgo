@@ -2,38 +2,20 @@ package main
 
 import (
 	"fmt"
+	"github.com/Jucunqi/jvmgo/ch06/rtda/heap"
 
-	"github.com/Jucunqi/jvmgo/ch06/classfile"
 	"github.com/Jucunqi/jvmgo/ch06/instructions"
 	"github.com/Jucunqi/jvmgo/ch06/instructions/base"
 	"github.com/Jucunqi/jvmgo/ch06/rtda"
 )
 
-func interpret(methodInfo *classfile.MemberInfo) {
+func interpret(method *heap.Method) {
 
-	// 获取方法中的code属性
-	codeAttr := methodInfo.CodeAttribute()
-
-	// 从属性中解析最大局部变量表，最大栈，code属性
-	maxLocals := codeAttr.MaxLocals()
-	maxStack := codeAttr.MaxStack()
-	bytecode := codeAttr.Code()
-
-	// 创建一个线程
 	thread := rtda.NewThread()
-
-	// 创建一个栈帧
-	frame := thread.NewFrame(uint(maxLocals), uint(maxStack))
-
-	// 栈帧压入栈
+	frame := thread.NewFrame(method)
 	thread.PushFrame(frame)
-
-	// 异常处理
 	defer catchErr(frame)
-
-	// 循环解析指令并执行
-	loop(thread, bytecode)
-
+	loop(thread, method.Code())
 }
 
 func loop(thread *rtda.Thread, bytecode []byte) {
@@ -47,6 +29,7 @@ func loop(thread *rtda.Thread, bytecode []byte) {
 		opcode := reader.ReadInt8()
 		instruction := instructions.NewInstruction(byte(opcode))
 		instruction.FetchOperands(reader)
+		fmt.Printf("pc: %2d inst: %T %v\n", pc, instruction, instruction)
 		frame.SetNextPC(reader.PC())
 		instruction.Execute(frame)
 	}
