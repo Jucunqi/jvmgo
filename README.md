@@ -1896,3 +1896,388 @@ public class GuessTest {
 因为没有实现return指令，所以会报错，但是局部变量表中已经可以看到5050我们想要的答案了，结果如图
 
 ![ch05_test.png](https://s2.loli.net/2025/06/20/3kzrIRVoiEft6yC.png)
+
+
+
+# 第六章 类和对象
+
+## 一、方法区
+
+> 一块可以被多个线程共享的逻辑区域
+>
+> 主要存放从class文件获取的类信息、类变量，加载一次并缓存
+
+
+
+### 1、类信息
+
+```go
+type Class struct {
+	accessFlags       uint16        //访问权限
+	name              string        //类名
+	superClassName    string        //父类名
+	interfaceNames    []string      //接口名
+	constantPool      *ConstantPool //常量池
+	fields            []*Field      //字段
+	methods           []*Method     //方法
+	loader            *ClassLoader  //类加载器
+	superClass        *Class        //父类
+	interfaces        []*Class      //接口
+	instanceSlotCount uint          //实例字段数量
+	staticSlotCount   uint          //静态字段数量
+	staticVars        Slots         //静态变量
+}
+
+func newClass(cf *classfile.ClassFile) *Class {
+	class := &Class{}
+	class.accessFlags = cf.AccessFlags()
+	class.name = cf.ClassName()
+	class.superClassName = cf.SuperClassName()
+	class.interfaceNames = cf.InterfaceNames()
+	class.constantPool = newConstantPool(class, cf.ConstantPool())
+	class.fields = newFields(class, cf.Fields())
+	class.methods = newMethod(class, cf.Methods())
+	return class
+}
+```
+
+
+
+### 2、字段信息
+
+```go
+type Field struct {
+	ClassMember          //继承自ClassMember
+	constValueIndex uint //常量值索引
+	slotId          uint //槽位ID
+}
+
+type ClassMember struct {
+	accessFlags uint16 // 访问标识符
+	name        string // 名称
+	descriptor  string // 描述符
+	class       *Class // 所属类
+}
+```
+
+
+
+### 3、方法信息
+
+```go
+type Method struct {
+	ClassMember        //继承自ClassMember
+	maxStack    uint   //最大栈深度
+	maxLocals   uint   //最大局部变量表大小
+	code        []byte //字节码
+}
+
+type ClassMember struct {
+	accessFlags uint16 // 访问标识符
+	name        string // 名称
+	descriptor  string // 描述符
+	class       *Class // 所属类
+}
+```
+
+### 4、其他信息
+
+>instanceSlotCount uint          //实例字段数量
+>staticSlotCount   uint             //静态字段数量
+>staticVars        Slots                //静态变量
+
+
+
+## 二、运行时常量池
+
+> 主要存放两类信息：字面量和符号引用
+>
+> 字面量包括：整数、浮点数、字符串字面量
+>
+> 符号引用包括：类符号引用、字段符号引用、方法符号引用、接口方法符号引用
+
+```go
+// 常量接口
+type Constant interface {
+}
+
+// 常量池
+type ConstantPool struct {
+	class  *Class // 所属类
+	consts []Constant
+}
+```
+
+
+
+### 1、类符号引用
+
+```go
+// 类符号引用
+type ClassRef struct {
+	SymRef //继承自SymRef
+}
+
+// 符号引用
+type SymRef struct {
+	cp        *ConstantPool // 常量池
+	className string        // 类名
+	class     *Class        // 类
+}
+```
+
+### 2、字段符号引用
+
+```go
+// 字段符号引用
+type FieldRef struct {
+	MemberRef        //继承自MemberRef
+	field     *Field // 字段
+}
+// 成员符号引用
+type MemberRef struct {
+	SymRef            //继承自SymRef
+	name       string // 名称
+	descriptor string
+}
+```
+
+
+
+### 3、方法符号引用
+
+```go
+// 方法符号引用
+type MethodRef struct {
+	MemberRef         //继承自MemberRef
+	method    *Method // 方法
+}
+```
+
+
+
+### 4、接口方法符号引用
+
+```go
+// 接口方法符号引用
+type InterfaceMethodref struct {
+	MemberRef         //继承自MemberRef
+	method    *Method // 方法
+}
+```
+
+## 三、类加载器
+
+>简单分为步骤：
+>
+>1. 读取class文件
+>2. load加载
+>3. 链接(验证、准备)
+
+
+
+```go
+// 类加载器
+type ClassLoader struct {
+	cp       *classpath.Classpath // 类路径
+	classMap map[string]*Class    // 已加载的类
+}
+
+// 加载
+func (c *ClassLoader) LoadClass(name string) *Class {
+
+	if class, ok := c.classMap[name]; ok {
+		return class
+
+	}
+	return c.loadNonArrayClass(name)
+}
+
+func (c *ClassLoader) loadNonArrayClass(name string) *Class {
+
+	data, entry := c.readClass(name)
+	class := c.defineClass(data)
+	link(class)
+	fmt.Printf("[Loaded %s from %s]\n,", name, entry)
+	return class
+}
+```
+
+
+
+## 四、对象、实例变量和类变量
+
+> 使用slots来存放每个属性，数组结构
+>
+> 链接阶段，为变量赋默认值，为常量赋值
+>
+> 如果常量是引用类型(排除String)或者需要执行代码的，将通过<clinit> 方法进行复制，不会直接在常量值赋值
+
+
+
+## 五、类和字段符号引用解析
+
+```go
+// 类解析
+func (s *SymRef) ResolveClass() *Class {
+
+	if s.class == nil {
+		s.resolveClassRef()
+	}
+	return s.class
+}
+
+func (s *SymRef) resolveClassRef() {
+	d := s.cp.class
+	c := d.loader.LoadClass(s.className)
+	if !c.isAccessibleTo(d) {
+		panic("java.lang.IllegalAccessError")
+	}
+	s.class = c
+}
+```
+
+
+
+```go
+// 字段解析
+func (r *FieldRef) ResolvedField() *Field {
+
+	if r.field == nil {
+		r.resolveFieldRef()
+	}
+	return r.field
+}
+
+func (r *FieldRef) resolveFieldRef() {
+
+	d := r.cp.class
+	c := r.ResolveClass()
+	field := lookupField(c, r.name, r.descriptor)
+	if field == nil {
+		panic("java.lang.NoSuchFieldError")
+	}
+	if !field.isAccessibleTo(d) {
+		panic("java.Lang.IllegalAccessError")
+	}
+	r.field = field
+}
+
+func lookupField(c *Class, name string, descriptor string) *Field {
+
+	for _, field := range c.fields {
+		if field.name == name && field.descriptor == descriptor {
+			return field
+		}
+	}
+	for _, iface := range c.interfaces {
+		if field := lookupField(iface, name, descriptor); field != nil {
+			return field
+		}
+	}
+	if c.superClass != nil {
+		return lookupField(c.superClass, name, descriptor)
+	}
+	return nil
+}
+```
+
+
+
+## 六、类和字段相关指令
+
+> 实现了 new、putstatic、getstatic、putfield、getfield、instanceof、checkcast、ldc系列
+
+列举两个指令的代码
+
+### 1、NEW
+
+```go
+type NEW struct {
+	base.Index16Instruction
+}
+
+func (n *NEW) Execute(frame *rtda.Frame) {
+
+	cp := frame.Method().Class().ConstantPool()
+	constant := cp.GetConstant(n.Index)
+	classRef := constant.(*heap.ClassRef)
+	class := classRef.ResolveClass()
+	if class.IsInterface() || class.IsAbstract() {
+		panic("java.lang.InstantiationError")
+	}
+	ref := class.NewObject()
+	frame.OperandStack().PushRef(ref)
+}
+
+func (c *Class) NewObject() *Object {
+
+	return newObject(c)
+}
+
+func newObject(c *Class) *Object {
+	return &Object{
+		class:  c,
+		fields: newSlots(c.instanceSlotCount),
+	}
+}
+```
+
+
+
+### 2、putstatic
+
+```go
+func (p *PUT_STATIC) Execute(frame *rtda.Frame) {
+
+	currentMethod := frame.Method()
+	currentClass := currentMethod.Class()
+	cp := currentClass.ConstantPool()
+	fieldRef := cp.GetConstant(p.Index).(*heap.FieldRef)
+	field := fieldRef.ResolvedField()
+	class := field.Class()
+	if !field.IsStatic() {
+		panic("java.lang.IncompatibleClassChangeError")
+	}
+	if field.IsFinal() {
+		if currentClass != class || currentMethod.Name() != "<clinit>" {
+			panic("java.lang.IllegalAccessError")
+		}
+	}
+	descriptor := field.Descriptor()
+	slotId := field.SlotId()
+	slots := class.StaticVars()
+	stack := frame.OperandStack()
+	switch descriptor[0] {
+	case 'Z', 'B', 'C', 'S', 'I':
+		slots.SetInt(slotId, stack.PopInt())
+	case 'F':
+		slots.SetFloat(slotId, stack.PopFloat())
+	case 'J':
+		slots.SetLong(slotId, stack.PopLong())
+	case 'D':
+		slots.SetDouble(slotId, stack.PopDouble())
+	case 'L', '[':
+		slots.SetRef(slotId, stack.PopRef())
+
+	}
+}
+```
+
+## 七、功能测试
+
+> 修改staratJVM函数，通过类加载加载指定的类，实现方法区、运行时常量池、类和对象关联、以及部分指令
+
+### 1、install
+
+> go install ./ch06
+
+
+
+### 2、执行
+
+> sh ch06 Myobject
+
+### 3、结果如图
+
+![ch06test.png](https://s2.loli.net/2025/06/24/9GX2KVle7svauk5.png)
