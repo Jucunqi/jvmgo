@@ -2,7 +2,7 @@ package heap
 
 import "github.com/Jucunqi/jvmgo/ch07/classfile"
 
-// 成员符号引用
+// MemberRef 成员符号引用
 type MemberRef struct {
 	SymRef            //继承自SymRef
 	name       string // 名称

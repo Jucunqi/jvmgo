@@ -5,10 +5,11 @@ import (
 )
 
 type Method struct {
-	ClassMember        //继承自ClassMember
-	maxStack    uint   //最大栈深度
-	maxLocals   uint   //最大局部变量表大小
-	code        []byte //字节码
+	ClassMember         //继承自ClassMember
+	maxStack     uint   //最大栈深度
+	maxLocals    uint   //最大局部变量表大小
+	code         []byte //字节码
+	argSlotCount uint   // 方法参数个数
 }
 
 func (m *Method) copyAttributes(method *classfile.MemberInfo) {
@@ -28,6 +29,7 @@ func newMethod(class *Class, methods []*classfile.MemberInfo) []*Method {
 		results[i].class = class
 		results[i].copyAttributes(method)
 		results[i].copyMemberInfo(method)
+		results[i].calcArgSlotCount()
 	}
 	return results
 }
@@ -68,4 +70,34 @@ func (m *Method) Class() *Class {
 
 func (m *Method) Name() string {
 	return m.name
+}
+
+func (m *Method) ArgSlotCount() uint {
+	return m.argSlotCount
+}
+
+// 计算方法参数数量
+func (m *Method) calcArgSlotCount() {
+
+	// 解析方法描述符(参数类型数组和返回类型)
+	parsedDescriptor := parseMethodDescriptor(m.descriptor)
+
+	// 遍历参数列表
+	for _, paramType := range parsedDescriptor.parameterTypes {
+		m.argSlotCount++
+
+		// Long 和 Double 占两个槽位
+		if paramType == "J" || paramType == "D" {
+			m.argSlotCount++
+		}
+	}
+
+	// 如果不是静态方法，再加一个this
+	if !m.IsStatic() {
+		m.argSlotCount++
+	}
+}
+
+func (m *Method) Descriptor() string {
+	return m.descriptor
 }

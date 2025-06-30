@@ -16,7 +16,7 @@ func newFrame(thread *Thread, method *heap.Method) *Frame {
 		thread:       thread,
 		method:       method,
 		localVars:    newLocalVars(method.MaxLocals()),
-		operandStack: newOperandStack(method.MaxLocals())}
+		operandStack: newOperandStack(method.MaxStack())}
 }
 
 func (f *Frame) LocalVars() LocalVars {
@@ -41,4 +41,8 @@ func (f *Frame) Thread() *Thread {
 
 func (f *Frame) Method() *heap.Method {
 	return f.method
+}
+
+func (f *Frame) RevertNextPC() {
+	f.nextPC = f.thread.pc
 }

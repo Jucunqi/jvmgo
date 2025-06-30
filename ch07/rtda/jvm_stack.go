@@ -32,10 +32,14 @@ func (s *Stack) pop() *Frame {
 
 func (s *Stack) top() *Frame {
 
-	if s.top() == nil {
+	if s._top == nil {
 		panic("jvm stack is empty!")
 	}
 	return s._top
+}
+
+func (s *Stack) isEmpty() bool {
+	return s._top == nil
 }
 
 func newStack(size uint) *Stack {

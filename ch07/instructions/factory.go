@@ -485,18 +485,18 @@ func NewInstruction(opcode byte) base.Instruction {
 		return &control.TABLE_SWITCH{}
 	case 0xab:
 		return &control.LOOKUP_SWITCH{}
-	// case 0xac:
-	// 	return ireturn
-	// case 0xad:
-	// 	return lreturn
-	// case 0xae:
-	// 	return freturn
-	// case 0xaf:
-	// 	return dreturn
-	// case 0xb0:
-	// 	return areturn
-	//case 0xb1:
-	//	return _return
+	case 0xac:
+		return &control.IRETURN{}
+	case 0xad:
+		return &control.LRETURN{}
+	case 0xae:
+		return &control.FRETURN{}
+	case 0xaf:
+		return &control.DRETURN{}
+	case 0xb0:
+		return &control.ARETURN{}
+	case 0xb1:
+		return &control.RETURN{}
 	case 0xb2:
 		return &references.GET_STATIC{}
 	case 0xb3:
@@ -509,10 +509,10 @@ func NewInstruction(opcode byte) base.Instruction {
 		return &references.INVOKE_VIRTUAL{}
 	case 0xb7:
 		return &references.INVOKE_SPECIAL{}
-	// case 0xb8:
-	// 	return &INVOKE_STATIC{}
-	// case 0xb9:
-	// 	return &INVOKE_INTERFACE{}
+	case 0xb8:
+		return &references.INVOKE_STATIC{}
+	case 0xb9:
+		return &references.INVOKE_INTERFACE{}
 	// case 0xba:
 	// 	return &INVOKE_DYNAMIC{}
 	case 0xbb:

@@ -20,16 +20,33 @@ type Class struct {
 	instanceSlotCount uint          //实例字段数量
 	staticSlotCount   uint          //静态字段数量
 	staticVars        Slots         //静态变量
+	initStarted       bool          // 是否已经初始化
 }
 
 func newClass(cf *classfile.ClassFile) *Class {
+
+	// 数据封装
 	class := &Class{}
+
+	// 访问标识
 	class.accessFlags = cf.AccessFlags()
+
+	// 类名
 	class.name = cf.ClassName()
+
+	// 父类名
 	class.superClassName = cf.SuperClassName()
+
+	// 接口名称集合
 	class.interfaceNames = cf.InterfaceNames()
+
+	// 常量池
 	class.constantPool = newConstantPool(class, cf.ConstantPool())
+
+	// 根据常量池中的字段表，封装字段信息
 	class.fields = newFields(class, cf.Fields())
+
+	// 根据常量池中的方法表，封装方法信息
 	class.methods = newMethod(class, cf.Methods())
 	return class
 }
@@ -118,4 +135,31 @@ func (c *Class) getStaticMethod(name string, descriptor string) *Method {
 
 func (c *Class) StaticVars() Slots {
 	return c.staticVars
+}
+func (c *Class) GetPackageName() string {
+	if i := strings.LastIndex(c.name, "/"); i >= 0 {
+		return c.name[:i]
+	}
+	return ""
+}
+
+func (c *Class) SuperClass() *Class {
+	return c.superClass
+}
+
+func (c *Class) Name() string {
+	return c.name
+}
+
+func (c *Class) InitStarted() bool {
+	return c.initStarted
+}
+
+func (c *Class) StartInit() {
+	c.initStarted = true
+}
+
+func (c *Class) GetClinitMethod() *Method {
+
+	return c.getStaticMethod("<clinit>", "()V")
 }

@@ -9,13 +9,15 @@ import (
 
 // 类加载器
 type ClassLoader struct {
-	cp       *classpath.Classpath // 类路径
-	classMap map[string]*Class    // 已加载的类
+	cp          *classpath.Classpath // 类路径
+	verboseFlag bool                 // 输出日志标识
+	classMap    map[string]*Class    // 已加载的类
 }
 
-func NewClassLoader(cp *classpath.Classpath) *ClassLoader {
+func NewClassLoader(cp *classpath.Classpath, verboseFlag bool) *ClassLoader {
 	classLoader := &ClassLoader{}
 	classLoader.cp = cp
+	classLoader.verboseFlag = verboseFlag
 	classLoader.classMap = make(map[string]*Class)
 	return classLoader
 }
@@ -34,7 +36,9 @@ func (c *ClassLoader) loadNonArrayClass(name string) *Class {
 	data, entry := c.readClass(name)
 	class := c.defineClass(data)
 	link(class)
-	fmt.Printf("[Loaded %s from %s]\n,", name, entry)
+	if c.verboseFlag {
+		fmt.Printf("[Loaded %s from %s]\n,", name, entry)
+	}
 	return class
 }
 
@@ -49,6 +53,7 @@ func (c *ClassLoader) readClass(name string) ([]byte, classpath.Entry) {
 
 func (c *ClassLoader) defineClass(data []byte) *Class {
 
+	// 解析Class，生成class对象
 	class := parseClass(data)
 	class.loader = c
 	resolveSuperClass(class)
@@ -76,10 +81,14 @@ func resolveSuperClass(class *Class) {
 
 func parseClass(data []byte) *Class {
 
+	// 读取解析class字节数组内容，封装到classfile中
 	cf, err := classfile.Parse(data)
+
 	if err != nil {
 		panic("java.lang.ClassFormataError")
 	}
+
+	// 创建class对象
 	class := newClass(cf)
 	return class
 }

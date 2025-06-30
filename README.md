@@ -2281,3 +2281,334 @@ func (p *PUT_STATIC) Execute(frame *rtda.Frame) {
 ### 3、结果如图
 
 ![ch06test.png](https://s2.loli.net/2025/06/24/9GX2KVle7svauk5.png)
+
+
+
+# 第七章 方法调用和返回
+
+## 一、概述
+
+> 调用角度，类可以分为：静态方法、实例方法。
+>
+> 实现角度，类可以分位：抽象方法、java方法(或jvm上的其他语言：Groovy、Scala等)
+>
+> 静态方法和抽象方法是互斥的
+>
+> jdk7之前，java提供了4个方法调用指令：invoke_static, invoke_special, invoke_vritual, invoke_interface
+>
+> jdk8提供了：invoke_dynamic（暂不实现）
+
+
+
+**方法调用指令大致流程:** 
+
+1. 解析常量池中方法 
+2. 根据方法参数从操作数栈中弹出变量 
+3. 新建栈帧压入虚拟机栈 
+4. 将之前弹出的变量放入当前栈帧的局部变量表中(参数传递) 
+5. 方法执行完毕后将返回值推入前一帧的操作数栈顶 
+6. 弹出当前帧
+
+
+
+## 二、解析方法符号引用
+
+> 不实现接口的静态方法和默认方法
+
+
+
+**解析方法符号引用大致流程：**
+
+1. 获取当前类的常量池
+2. 从常量池中获取方法引用的信息
+3. 解析方法所在类、若未初始化需要进行初始化
+4. 遍历类中的方法，根据方法名匹配 (动态匹配需要加一些额外逻辑，详见代码)
+5. 方法访问权限验证(private、static等)
+6. 创建方法栈帧，压入操作数栈
+
+
+
+**以非接口方法符号引用为例，实例代码**
+
+```go
+func (r *MethodRef) ResolveMethod() *Method {
+
+	if r.method == nil {
+		r.resolveMethodRef()
+	}
+	return r.method
+}
+
+func (r *MethodRef) resolveMethodRef() {
+
+	// 获取当前类
+	currentClass := r.cp.class
+
+	// 获取方法所在类
+	methodClass := r.ResolveClass()
+
+	// 如果方法所在类是个接口，抛出异常
+	if methodClass.IsInterface() {
+		panic("java.lang.IncompatibleClassChangeError")
+	}
+
+	// 遍历类中的方法，获取当前方法
+	method := lookupMethod(methodClass, r.name, r.descriptor)
+
+	// 如果方法为空，抛出异常
+	if method == nil {
+		panic("java.lang.NoSuchMethodError")
+	}
+
+	// 验证访问权限
+	if !method.isAccessibleTo(currentClass) {
+		panic("java.lang.IllegalAccessError")
+	}
+
+	r.method = method
+}
+
+func lookupMethod(class *Class, name string, descriptor string) *Method {
+
+	// 封装通过方法，从类中根据名称和描述符匹配方法
+	method := LookupMethodInClass(class, name, descriptor)
+	if method == nil {
+		method = lookupMethodInInterface(class.interfaces, name, descriptor)
+	}
+	return method
+}
+
+func lookupMethodInInterface(ifaces []*Class, name string, descriptor string) *Method {
+
+	for _, iface := range ifaces {
+		for _, method := range iface.methods {
+			if method.name == name && method.descriptor == descriptor {
+				return method
+			}
+		}
+		method := lookupMethodInInterface(iface.interfaces, name, descriptor)
+		if method != nil {
+			return method
+		}
+	}
+	return nil
+}
+```
+
+
+
+## 三、方法调用和参数传递
+
+> 大致流畅，前面已经有提过了，提供一下实例代码
+
+```go
+// InvokeMethod 方法调用逻辑实现
+func InvokeMethod(invokerFrame *rtda.Frame, method *heap.Method) {
+
+	// 获取当前栈帧所在的线程
+	thread := invokerFrame.Thread()
+
+	// 因为方法调用需要向当前线程的栈中压入一个栈帧，所以创建一个方法的栈帧
+	newFrame := thread.NewFrame(method)
+
+	// 压入虚拟机栈
+	thread.PushFrame(newFrame)
+
+	// 参数传递：1. 获取参数数量
+	argSlotCount := int(method.ArgSlotCount())
+
+	// 参数传递：2. 从调用方的操作数栈中参数变量，放入方法栈帧的局部变量表中
+	if argSlotCount > 0 {
+		for i := argSlotCount - 1; i >= 0; i-- {
+			slot := invokerFrame.OperandStack().PopSlot()
+			newFrame.LocalVars().SetSlot(uint(i), slot)
+		}
+	}
+
+	// hack：因为还未实现Native方法，所以直接跳过
+	if method.IsNative() {
+		if method.Name() == "registerNatives" {
+			thread.PopFrame()
+		} else {
+			panic(fmt.Sprintf("native method: %v.%v%v\n", method.Class().Name(), method.Name(), method.Descriptor()))
+		}
+	}
+}
+```
+
+
+
+## 四、返回指令
+
+> 做的事情比较简单：弹出当前帧，结果压入上一帧的操作数栈
+
+**示例代码**
+
+```go
+func (i *IRETURN) Execute(frame *rtda.Frame) {
+
+	// 获取当前线程
+	thread := frame.Thread()
+
+	// 获取操作数栈中的变量
+	currentFrame := thread.PopFrame()
+	result := currentFrame.OperandStack().PopInt()
+
+	// 把变量压入调用线程栈帧中的操作数栈
+	invokerFrame := thread.TopFrame()
+	invokerFrame.OperandStack().PushInt(result)
+}
+
+```
+
+
+
+## 五、方法调用指令
+
+>Invoke_static 		 静态调用
+>
+>invoke_special	       构造器、super、private方法
+>
+>invoke_vritual                动态调用
+>
+>Invoke_interface           接口调用
+
+**示例代码：以invoke_vritual为例**
+
+```go
+func (i *INVOKE_VIRTUAL) Execute(frame *rtda.Frame) {
+
+	// 获取当前类的常量池
+	currentClass := frame.Method().Class()
+	cp := currentClass.ConstantPool()
+
+	// 获取方法的符号引用
+	methodRef := cp.GetConstant(i.Index).(*heap.MethodRef)
+
+	// 方法解析
+	resolvedMethod := methodRef.ResolveMethod()
+
+	if resolvedMethod.IsStatic() {
+		panic("java.lang.IncompatibleClassChangeError")
+	}
+
+	// 从操作数栈中获取this对象引用
+	ref := frame.OperandStack().GetRefFromTop(resolvedMethod.ArgSlotCount() - 1)
+
+	if ref == nil {
+		// hack！
+		if methodRef.Name() == "println" {
+			_println(frame.OperandStack(), methodRef.Descriptor())
+			return
+		}
+		panic("java.lang.NullPinterException")
+	}
+	// 校验protect权限
+	if resolvedMethod.IsProtected() && resolvedMethod.Class().IsSuperClassOf(currentClass) &&
+		resolvedMethod.Class().GetPackageName() != currentClass.GetPackageName() && ref.Class() != currentClass &&
+		!ref.Class().IsSubClassOf(currentClass) {
+		panic("java.lang.IllegalAccessError")
+	}
+
+	methodToBeInvoked := heap.LookupMethodInClass(ref.Class(), methodRef.Name(), methodRef.Descriptor())
+	if methodToBeInvoked == nil || methodToBeInvoked.IsAbstract() {
+		panic("java.lang.AbstractMethodError")
+	}
+	base.InvokeMethod(frame, methodToBeInvoked)
+}
+```
+
+
+
+## 六、改进解释器
+
+> 命令行新增 verbose:inst 和 verbose:class参数，用于输出类解析和指令解析详细日志
+
+**loop函数支持多方法解析,示例代码**
+
+```go
+func loop(thread *rtda.Thread, logInst bool) {
+	reader := &base.BytecodeReader{}
+	for {
+		// 获取当前栈顶栈帧
+		frame := thread.CurrentFrame()
+
+		// 获取程序计数器
+		pc := frame.NextPC()
+		thread.SetPC(pc)
+
+		// decode
+		reader.Reset(frame.Method().Code(), pc)
+		opcode := reader.ReadInt8()
+		inst := instructions.NewInstruction(byte(opcode))
+		inst.FetchOperands(reader)
+
+		// 根据标识判断是否打印指令日志
+		if logInst {
+			logInstruction(frame, inst)
+
+		}
+
+		// execute
+		frame.SetNextPC(reader.PC())
+		inst.Execute(frame)
+
+		// 结束标识
+		if thread.IsStackEmpty() {
+			break
+		}
+	}
+}
+
+```
+
+
+
+## 七、类初始化
+
+> 实际上就是执行类的<clinit> 方法、一下情况会触发
+>
+> - 执行new指令创建对象，类还未初始化
+> - 执行putstatic、getstatis指令，存储静态变量，声明该字段的类还未初始化
+> - 执行invoke_static指令调用类的静态方法，声明该方法的类还未初始化
+> - 初始化类时，父类还未初始化
+> - 反射操作
+
+**示例代码**
+
+```go
+func InitClass(thread *rtda.Thread, class *heap.Class) {
+
+	// 设置初始化标记位
+	class.StartInit()
+
+	// 计划执行clinit方法
+	scheduleClinit(thread, class)
+
+	// 初始化父类
+	initSuperClass(thread, class)
+}
+
+func initSuperClass(thread *rtda.Thread, class *heap.Class) {
+	if !class.IsInterface() {
+		superClass := class.SuperClass()
+		if superClass != nil && !superClass.InitStarted() {
+			InitClass(thread, superClass)
+		}
+	}
+}
+
+func scheduleClinit(thread *rtda.Thread, class *heap.Class) {
+
+	clinit := class.GetClinitMethod()
+
+	if clinit != nil {
+
+		// 创建栈帧
+		frame := thread.NewFrame(clinit)
+		// 压入栈
+		thread.PushFrame(frame)
+	}
+}
+```
+
