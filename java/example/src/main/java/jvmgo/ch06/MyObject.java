@@ -11,6 +11,6 @@ public class MyObject {
         int x = 32768;          // ldc
         MyObject myObj = new MyObject();        // new
         myObj.testObj = new MyObject();                  // putfield
-        Object testObj1 = myObj.testObj;
+        Object testObj1 = myObj.testObj;            // getfield
     }
 }
