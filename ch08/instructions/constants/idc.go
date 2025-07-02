@@ -32,7 +32,9 @@ func _ldc(frame *rtda.Frame, index uint) {
 	case float32:
 		stack.PushFloat(c.(float32))
 	case string:
-		// todo
+		str := c.(string)
+		jString := heap.JString(frame.Method().Class().Loader(), str)
+		stack.PushRef(jString)
 		break
 	case *heap.ClassRef:
 		// todo

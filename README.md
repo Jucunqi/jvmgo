@@ -2612,3 +2612,486 @@ func scheduleClinit(thread *rtda.Thread, class *heap.Class) {
 }
 ```
 
+
+
+# 第八章 数组和字符串
+
+## 一、概述
+
+> 数组类和普通类不同，普通类从class文件加载，数组类由jvm虚拟机在运行时生成
+>
+> 数组对象创建方式不同，普通对象通过new指令，然后由构造器初始化、数组有newarray、anewarray、multianewarray指令创建
+
+
+
+## 二、数组实现
+
+### 1、数组对象
+
+> 依然使用Object封装，不过字段信息类型修改为interface{}
+>
+> go语言中interface{}表示任意类型
+
+```go
+type Object struct {
+	class *Class
+	data  interface{} // 标识任何类型
+}
+```
+
+
+
+### 2、数组类
+
+> 不需要修改class结构体，增加NewArray函数
+
+```go
+func (c *Class) NewArray(count uint) *Object {
+
+	if !c.IsArray() {
+		panic("Not array class: " + c.name)
+	}
+	switch c.Name() {
+	case "[Z":
+		return &Object{c, make([]int8, count)}
+	case "[B":
+		return &Object{c, make([]int8, count)}
+	case "[C":
+		return &Object{c, make([]uint16, count)}
+	case "[S":
+		return &Object{c, make([]int16, count)}
+	case "[I":
+		return &Object{c, make([]int32, count)}
+	case "[J":
+		return &Object{c, make([]int64, count)}
+	case "[F":
+		return &Object{c, make([]float32, count)}
+	case "[D":
+		return &Object{c, make([]int64, count)}
+	default:
+		return &Object{c, make([]*Object, count)}
+
+	}
+}
+```
+
+### 3、加载数组类
+
+> 修改ClassLoader类中的LoadClass方法
+
+```go
+func (c *ClassLoader) LoadClass(name string) *Class {
+
+	// 判断类是否已经加载
+	if class, ok := c.classMap[name]; ok {
+		return class
+
+	}
+
+	// 判断类是否属于数组类
+	if name[0] == '[' {
+		return c.loadArrayClass(name)
+	}
+
+	// 加载非数组类
+	return c.loadNonArrayClass(name)
+}
+
+func (c *ClassLoader) loadArrayClass(name string) *Class {
+	class := &Class{
+		accessFlags: ACC_PUBLIC, // todo
+		name:        name,       // 类名
+		loader:      c,          // 加载器
+		initStarted: true,       // 数组不需要初始化
+		superClass:  c.LoadClass("java/lang/Object"),
+		interfaces: []*Class{
+			c.LoadClass("java/lang/Cloneable"),
+			c.LoadClass("java/io/Serializable"),
+		},
+	}
+	c.classMap[name] = class
+	return class
+}
+```
+
+
+
+## 三、数组相关指令
+
+### 1、newarray指令
+
+> 创建基本数据类型的数组，有两个操作数
+>
+> 1. 紧跟在指令后面 u1，代表基本数据类型
+> 2. 从操作数栈中获取，数组长度
+
+```go
+// 基本数据类型和操作数对应关系
+const (
+	AT_BOOLEAN = 4
+	AT_CHAR    = 5
+	AT_FLOAT   = 6
+	AT_DOUBLE  = 7
+	AT_BYTE    = 8
+	AT_SHORT   = 9
+	AT_INT     = 10
+	AT_LONG    = 11
+)
+
+func (n *NEW_ARRAY) Execute(frame *rtda.Frame) {
+
+	// 获取操作数栈
+	stack := frame.OperandStack()
+
+	// 栈顶弹出元素，代表数组长度
+	count := stack.PopInt()
+	if count < 0 {
+		panic("java.lang.NegativeArraySizeException")
+	}
+
+	// 获取类加载器对象
+	classLoder := frame.Method().Class().Loader()
+
+	// 解析数组类
+	arrClass := getPrimitiveArrayClass(classLoder, n.atype)
+
+	// 创建数组对象
+	arr := arrClass.NewArray(uint(count))
+
+	// 压入操作数栈
+	stack.PushRef(arr)
+}
+
+func getPrimitiveArrayClass(loder *heap.ClassLoader, atype uint8) *heap.Class {
+	switch atype {
+	case AT_BOOLEAN:
+		return loder.LoadClass("[Z")
+	case AT_BYTE:
+		return loder.LoadClass("[B")
+	case AT_CHAR:
+		return loder.LoadClass("[C")
+	case AT_SHORT:
+		return loder.LoadClass("[S")
+	case AT_INT:
+		return loder.LoadClass("[I")
+	case AT_LONG:
+		return loder.LoadClass("[J")
+	case AT_FLOAT:
+		return loder.LoadClass("[F")
+	case AT_DOUBLE:
+		return loder.LoadClass("[D")
+	default:
+		panic("Invalid atype!")
+
+	}
+}
+```
+
+
+
+### 2、anewarray指令
+
+> 创建引用数据类型的数组，有两个操作数
+>
+> 1. u2的操作数，执行常量池中类符号引用索引
+> 2. 从操作数栈中弹出数组长度
+
+```go
+func (a *ANEW_ARRAY) Execute(frame *rtda.Frame) {
+
+	// 获取运行时常量池
+	cp := frame.Method().Class().ConstantPool()
+
+	// 获取类符号引用，并解析
+	classRef := cp.GetConstant(a.Index).(*heap.ClassRef)
+	componentClass := classRef.ResolveClass()
+
+	// 操作数栈中获取数组长度
+	stack := frame.OperandStack()
+	count := stack.PopInt()
+	if count < 0 {
+		panic("java.lang.NegativeArraySizeException")
+	}
+	arrClass := componentClass.ArrayClass()
+	arr := arrClass.NewArray(uint(count))
+	stack.PushRef(arr)
+}
+
+```
+
+
+
+### 3、arraylength指令
+
+> 获取数组的长度
+
+```go
+
+type ARRAY_LENGTH struct {
+	base.NoOperandsInstruction
+}
+
+func (a *ARRAY_LENGTH) Execute(frame *rtda.Frame) {
+
+	// 从栈顶获取数组引用
+	stack := frame.OperandStack()
+	arrRef := stack.PopRef()
+
+	if arrRef == nil {
+		panic("java.lang.NullPointException")
+	}
+	// 获取数组长度
+	length := arrRef.ArrayLength()
+
+	// 压入操作数栈
+	stack.PushInt(length)
+}
+
+func (o *Object) ArrayLength() int32 {
+
+	switch o.data.(type) {
+	case []int8:
+		return int32(len(o.data.([]int8)))
+	case []int16:
+		return int32(len(o.data.([]int16)))
+	case []int32:
+		return int32(len(o.data.([]int32)))
+	case []int64:
+		return int32(len(o.data.([]int64)))
+	case []uint16:
+		return int32(len(o.data.([]uint16)))
+	case []float32:
+		return int32(len(o.data.([]float32)))
+	case []float64:
+		return int32(len(o.data.([]float64)))
+	case []*Object:
+		return int32(len(o.data.([]*Object)))
+	default:
+		panic("Not array!")
+	}
+}
+```
+
+### 4、<t>aload指令
+
+> 从数组中获取元素，两个操作数
+>
+> 1. 操作数栈中获取数组索引
+> 2. 操作数栈中获取数组引用
+
+执行逻辑
+
+1. 从操作数栈中弹出数组索引
+2. 从操作数栈中弹出数组引用
+3. 将数组指定引用的值压入操作数栈顶
+
+以aaload为例，示例代码
+
+```go
+func (a *AALOAD) Execute(frame *rtda.Frame) {
+
+	// 获取操作数栈
+	stack := frame.OperandStack()
+
+	// 栈顶弹出数组索引
+	index := stack.PopInt()
+
+	// 栈顶弹出数组引用
+	arrRef := stack.PopRef()
+
+	// 非空验证
+	checkNotNil(arrRef)
+
+	// 索引越界验证
+	refs := arrRef.Refs()
+	checkIndex(len(refs), index)
+
+	// 结果压入栈顶
+	stack.PushRef(refs[index])
+}
+func checkIndex(arrLen int, index int32) {
+	if index < 0 || index >= int32(arrLen) {
+		panic("ArrayIndexOutOfBoundsException")
+	}
+}
+
+func checkNotNil(ref *heap.Object) {
+	if ref == nil {
+		panic("java.lang.NullPointerException")
+	}
+}
+```
+
+
+
+### 5、 <t>astore指令
+
+> 将指定值，放入数组中指定索引位置，三个操作数
+>
+> 1. 赋给数组的值
+> 2. 数组索引
+> 3. 数组引用
+
+大致逻辑
+
+1. 从操作数栈中弹出值
+2. 从操作数栈弹出数组索引
+3. 从操作数栈中弹出数组引用
+4. 数组指定索引赋值
+
+以iastore为例，示例代码
+
+```go
+func (i *IASTORE) Execute(frame *rtda.Frame) {
+
+	// 获取操作数栈
+	stack := frame.OperandStack()
+
+	// 栈顶弹出目标值
+	val := stack.PopInt()
+
+	// 栈顶弹出数组索引
+	index := stack.PopInt()
+
+	// 栈顶弹出数组引用
+	arrRef := stack.PopRef()
+	checkNotNil(arrRef)
+
+	// 校验数组是否越界 ， 将值放入数组
+	ints := arrRef.Ints()
+	checkIndex(len(ints), index)
+
+	// 数组赋值
+	ints[index] = int32(val)
+}
+func checkIndex(arrLen int, index int32) {
+	if index < 0 || index >= int32(arrLen) {
+		panic("ArrayIndexOutOfBoundsException")
+	}
+}
+
+func checkNotNil(ref *heap.Object) {
+	if ref == nil {
+		panic("java.lang.NullPointerException")
+	}
+}
+
+```
+
+
+
+### 6、multianewarray指令
+
+> 一共有2+n个操作数
+>
+> 前两个操作数紧跟操作码后面，第一个代表常量池索引，可以查询到数组类型的符号引用
+>
+> 第二个操作数表示数组纬度
+>
+> n个操作数表示每个纬度的数组长度
+
+
+
+## 四、测试数组
+
+测试冒泡排序
+
+```java
+public class BubbleSortTest {
+
+    public static void main(String[] args) {
+        int[] arr = {22, 84, 77, 56, 10, 43, 59};
+        int[] ints = bubbleSort(arr);
+        for (int anInt : ints) {
+            System.out.println(anInt);
+        }
+    }
+
+    /**
+     * 冒泡排序
+     *
+     * @param arr 数组
+     * @return 排序后的数组
+     */
+    public static int[] bubbleSort(int[] arr) {
+
+        boolean swapped = true;
+        int j = 0;
+        int tmp;
+        while (swapped) {
+            swapped = false;
+            j++;
+            for (int i = 0; i < arr.length - j; i++) {
+                if (arr[i] > arr[i + 1]) {
+                    tmp = arr[i];
+                    arr[i] = arr[i + 1];
+                    arr[i + 1] = tmp;
+                    swapped = true;
+                }
+            }
+        }
+        return arr;
+    }
+}
+```
+
+测试结果，如图
+
+![ch08-array-test.png](https://s2.loli.net/2025/07/02/kpm4Suzcoaj1QYi.png)
+
+
+
+## 五、字符串
+
+> java中字符串是以java/lang/String类型存储
+>
+> String类有两个重要变量value，类型是字符数组，jdk17中类型是字符数组
+>
+> 另一个是hash值，缓存字符串的hash码
+
+
+
+### 1、字符串池
+
+用map表示
+
+```go
+// 用map表示字符串池，key是go字符串，value是Java字符串
+var internedStrings = map[string]*Object{}
+
+func JString(loader *ClassLoader, goStr string) *Object {
+
+	// 从字符串池中获取
+	if internedStr, ok := internedStrings[goStr]; ok {
+		return internedStr
+	}
+
+	chars := stringToUtf16(goStr)
+	jChars := &Object{loader.LoadClass("[C"), chars}
+	jStr := loader.LoadClass("java/lang/String").NewObject()
+	jStr.SetRefVar("value", "[C", jChars)
+	internedStrings[goStr] = jStr
+	return jStr
+}
+```
+
+
+
+### 2、测试字符串
+
+> 久违的**hello world**即将到来
+
+```java
+package example.src.main.java.jvmgo.ch08;
+
+public class HelloWorld {
+
+    public static void main(String[] args) {
+        System.out.println("Hello World");
+    }
+}
+```
+
+结果如图
+
+![ch08-string-test.png](https://s2.loli.net/2025/07/02/7JtUClXg16FVyAo.png)

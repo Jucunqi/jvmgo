@@ -233,22 +233,22 @@ func NewInstruction(opcode byte) base.Instruction {
 		return aload_2
 	case 0x2d:
 		return aload_3
-	// case 0x2e:
-	// 	return iaload
-	// case 0x2f:
-	// 	return laload
-	// case 0x30:
-	// 	return faload
-	// case 0x31:
-	// 	return daload
-	// case 0x32:
-	// 	return aaload
-	// case 0x33:
-	// 	return baload
-	// case 0x34:
-	// 	return caload
-	// case 0x35:
-	// 	return saload
+	case 0x2e:
+		return &loads.IALOAD{}
+	case 0x2f:
+		return &loads.LALOAD{}
+	case 0x30:
+		return &loads.FALOAD{}
+	case 0x31:
+		return &loads.DALOAD{}
+	case 0x32:
+		return &loads.AALOAD{}
+	case 0x33:
+		return &loads.BALOAD{}
+	case 0x34:
+		return &loads.CALOAD{}
+	case 0x35:
+		return &loads.SALOAD{}
 	case 0x36:
 		return &stores.ISTORE{}
 	case 0x37:
@@ -299,22 +299,22 @@ func NewInstruction(opcode byte) base.Instruction {
 		return astore_2
 	case 0x4e:
 		return astore_3
-	// case 0x4f:
-	// 	return iastore
-	// case 0x50:
-	// 	return lastore
-	// case 0x51:
-	// 	return fastore
-	// case 0x52:
-	// 	return dastore
-	// case 0x53:
-	// 	return aastore
-	// case 0x54:
-	// 	return bastore
-	// case 0x55:
-	// 	return castore
-	// case 0x56:
-	// 	return sastore
+	case 0x4f:
+		return &stores.IASTORE{}
+	case 0x50:
+		return &stores.LASTORE{}
+	case 0x51:
+		return &stores.FASTORE{}
+	case 0x52:
+		return &stores.DASTORE{}
+	case 0x53:
+		return &stores.AASTORE{}
+	case 0x54:
+		return &stores.BASTORE{}
+	case 0x55:
+		return &stores.CASTORE{}
+	case 0x56:
+		return &stores.SASTORE{}
 	case 0x57:
 		return pop
 	case 0x58:
@@ -517,12 +517,12 @@ func NewInstruction(opcode byte) base.Instruction {
 	// 	return &INVOKE_DYNAMIC{}
 	case 0xbb:
 		return &references.NEW{}
-	// case 0xbc:
-	// 	return &NEW_ARRAY{}
-	// case 0xbd:
-	// 	return &ANEW_ARRAY{}
-	// case 0xbe:
-	// 	return arraylength
+	case 0xbc:
+		return &references.NEW_ARRAY{}
+	case 0xbd:
+		return &references.ANEW_ARRAY{}
+	case 0xbe:
+		return &references.ARRAY_LENGTH{}
 	// case 0xbf:
 	// 	return athrow
 	case 0xc0:
@@ -535,8 +535,8 @@ func NewInstruction(opcode byte) base.Instruction {
 	// 	return monitorexit
 	case 0xc4:
 		return &extended.WIDE{}
-	// case 0xc5:
-	// 	return &MULTI_ANEW_ARRAY{}
+	case 0xc5:
+		return &references.MULTI_ANEW_ARRAY{}
 	case 0xc6:
 		return &extended.IFNULL{}
 	case 0xc7:

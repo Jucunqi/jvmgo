@@ -109,8 +109,8 @@ func (c *Class) isSubInterfaceOf(t *Class) bool {
 
 func newObject(c *Class) *Object {
 	return &Object{
-		class:  c,
-		fields: newSlots(c.instanceSlotCount),
+		class: c,
+		data:  newSlots(c.instanceSlotCount),
 	}
 }
 
@@ -162,4 +162,40 @@ func (c *Class) StartInit() {
 func (c *Class) GetClinitMethod() *Method {
 
 	return c.getStaticMethod("<clinit>", "()V")
+}
+
+func (c *Class) IsArray() bool {
+	return c.name[0] == '['
+}
+
+func (c *Class) Loader() *ClassLoader {
+	return c.loader
+}
+
+func (c *Class) ArrayClass() *Class {
+	arrayClassName := getArrayClassName(c.name)
+	return c.loader.LoadClass(arrayClassName)
+}
+
+func (c *Class) isJlObject() bool {
+	return c.name == "java/lang/Object"
+}
+func (c *Class) isJlCloneable() bool {
+	return c.name == "java/lang/Cloneable"
+}
+func (c *Class) isJioSerializable() bool {
+	return c.name == "java/io/Serializable"
+}
+
+func (c *Class) getField(name string, descriptor string, isStatic bool) *Field {
+
+	for c := c; c != nil; c = c.superClass {
+		for _, field := range c.fields {
+			if field.IsStatic() == isStatic &&
+				field.name == name && field.descriptor == descriptor {
+				return field
+			}
+		}
+	}
+	return nil
 }

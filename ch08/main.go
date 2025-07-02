@@ -12,7 +12,11 @@ func main() {
 
 	// 获取cmd信息
 	//cmd := parseCmd()
-	cmd := &Cmd{cpOption: "/Users/lucaju/Documents/workspace/go/jvmgo/out/production/jvmgo/", class: "example.src.main.java.jvmgo.ch07.FibonacciTest", verboseClassFlag: false, verboseInstFlag: false}
+	strs := make([]string, 3)
+	strs[0] = "foo"
+	strs[1] = "bar"
+	strs[2] = "你好，世界"
+	cmd := &Cmd{args: strs, cpOption: "/Users/lucaju/Documents/workspace/go/jvmgo/out/production/jvmgo/", class: "example.src.main.java.jvmgo.ch08.PrintArgs", verboseClassFlag: false, verboseInstFlag: false}
 	// 根据cmd参数决定后面的执行内容
 	if cmd.versionFlag {
 		fmt.Println("version 0.0.6")
@@ -30,7 +34,7 @@ func startJVM(cmd *Cmd) {
 	mainClass := classLoader.LoadClass(classname)
 	mainMethod := mainClass.GetMainMethod()
 	if mainMethod != nil {
-		interpret(mainMethod, cmd.verboseInstFlag)
+		interpret(mainMethod, cmd.verboseInstFlag, cmd.args)
 	} else {
 		fmt.Printf("Main method not found in class %s\n", cmd.class)
 	}
