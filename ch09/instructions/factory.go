@@ -11,6 +11,7 @@ import (
 	"github.com/Jucunqi/jvmgo/ch09/instructions/loads"
 	"github.com/Jucunqi/jvmgo/ch09/instructions/math"
 	"github.com/Jucunqi/jvmgo/ch09/instructions/references"
+	"github.com/Jucunqi/jvmgo/ch09/instructions/reserved"
 	"github.com/Jucunqi/jvmgo/ch09/instructions/stack"
 	"github.com/Jucunqi/jvmgo/ch09/instructions/stores"
 )
@@ -546,6 +547,9 @@ func NewInstruction(opcode byte) base.Instruction {
 	// case 0xc9:
 	// 	return &JSR_W{}
 	// case 0xca: breakpoint
+	case 0xfe:
+		return &reserved.INVOKE_NATIVE{}
+
 	// case 0xfe: impdep1
 	// case 0xff: impdep2
 	default:

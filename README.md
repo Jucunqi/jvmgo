@@ -3095,3 +3095,414 @@ public class HelloWorld {
 结果如图
 
 ![ch08-string-test.png](https://s2.loli.net/2025/07/02/7JtUClXg16FVyAo.png)
+
+
+
+# 第九章 本地方法调用
+
+> java中有很多使用native修饰的本地方法，使用c语言编写的
+>
+> 下面将使用go语言实现本地方法
+
+
+
+## 一、注册和使用本地方法
+
+> 定义map结构的registry
+>
+> key：类名+方法名+描述符
+>
+> value：本地方法函数
+
+```go
+type NativeMethod func(frame *rtda.Frame)
+// 存储本地方法实现
+var registry = map[string]NativeMethod{}
+
+// Register 本地方法注册逻辑
+func Register(className string, methodName string, methodDescriptor string, method NativeMethod) {
+
+	// 定义缓存key
+	key := className + "~" + methodName + "~" + methodDescriptor
+	registry[key] = method
+}
+```
+
+
+
+## 二、调用本地方法
+
+> java虚拟机规范留了两个指令代表本地方法分别是，0xFE、0xFF，下面使用0xFE标识
+>
+> 由于本地方法没有code属性，所以修改方法解析逻辑，如果是native方法，则创建code属性，两个字节，一个字节固定0xFE，另一个固定为方法返回指令
+>
+> 本地方法操作数栈深度最大值默认4，局部变量表最大槽数与方法参数一致
+>
+> 执行逻辑：
+>
+> 通过本地方法注册表找到方法函数，然后执行
+
+```go
+// 根据方法返回类型，构建本地方法的code属性，本地方法的第一个指令是0xfe
+func (m *Method) injectCodeAttribute(returnType string) {
+
+	// 最大栈深，默认4
+	m.maxStack = 4
+
+	// 布局变量表最大 = 参数个数
+	m.maxLocals = m.argSlotCount
+
+	// 根据返回类型，构建code字节码
+	switch returnType[0] {
+	case 'V':
+		m.code = []byte{0xfe, 0xb1} // return
+	case 'D':
+		m.code = []byte{0xfe, 0xaf} // dreturn
+	case 'F':
+		m.code = []byte{0xfe, 0xae} // freturn
+	case 'J':
+		m.code = []byte{0xfe, 0xad} // lreturn
+	case 'L', '[':
+		m.code = []byte{0xfe, 0xb0} // areturn
+	default:
+		m.code = []byte{0xfe, 0xac} // ireturn
+	}
+}
+
+type INVOKE_NATIVE struct {
+	base.NoOperandsInstruction
+}
+
+func (i *INVOKE_NATIVE) Execute(frame *rtda.Frame) {
+
+	// 获取方法名，类名，描述符
+	method := frame.Method()
+	methodName := method.Name()
+	className := method.Class().Name()
+	descriptor := method.Descriptor()
+
+	// 根据上述参数，去本地方法注册表中匹配本地方法
+	nativeMethod := native.FindNativeMethod(className, methodName, descriptor)
+
+	// 非空校验
+	if nativeMethod == nil {
+		methodInfo := className + "." + methodName + "." + descriptor
+		panic("java.lang.UnsatisfiedLinkError: " + methodInfo)
+	}
+
+	// 执行本地方法
+	nativeMethod(frame)
+}
+```
+
+## 三、反射
+
+### 1、类和对象之间的关系
+
+> Java中每个类可以有多个实例对象，但是这能有一个Class对象，也就是类对象
+>
+> 类对象中存储这类的相关信息，在反射中很有用处
+
+> 修改代码，class类也可以关联上类对象信息
+
+```go
+type Class struct {
+	// ...
+  
+	jClass            *Object       //java.lang.Class实例 - 类对象、JVM 自动创建（类加载时）、用于获取类的元数据，动态操作类、每个类在 JVM 中只有一个 Class 对象
+}
+```
+
+### 2、修改类加载加载逻辑，加载类的时候，绑定类对象信息
+
+```go 
+func NewClassLoader(cp *classpath.Classpath, verboseFlag bool) *ClassLoader {
+	classLoader := &ClassLoader{}
+	classLoader.cp = cp
+	classLoader.verboseFlag = verboseFlag
+	classLoader.classMap = make(map[string]*Class)
+
+	// 类与类对象绑定关联
+	classLoader.loadBasicClasses()
+
+	// 加载void和基本数据类型
+	classLoader.loadPrimitiveClasses()
+	return classLoader
+}
+
+func (c *ClassLoader) LoadClass(name string) *Class {
+
+	// 判断类是否已经加载
+	if class, ok := c.classMap[name]; ok {
+		return class
+
+	}
+
+	var class *Class
+	if name[0] == '[' {
+		// 加载数组类
+		class = c.loadArrayClass(name)
+	} else {
+		// 加载非数组类
+		class = c.loadNonArrayClass(name)
+	}
+
+	if jlClassClass, ok := c.classMap["java/lang/Class"]; ok {
+		class.jClass = jlClassClass.NewObject()
+		class.jClass.extra = class
+	}
+	return class
+}
+```
+
+
+
+### 3、基本类型的类
+
+> void和基本数据类型也有对应的类对象，通过字面量来访问
+>
+> 有jvm运行时创建，并且都获取类对象的时候会调用Class.getPrimitiveClass()这个本地方法
+
+###### 
+
+### 4、修改ldc指令
+
+> 类对象字面值是通过ldc指令加载的
+
+```go
+func _ldc(frame *rtda.Frame, index uint) {
+  //....
+	case *heap.ClassRef:
+
+		// 转成类符号引用
+		classRef := c.(*heap.ClassRef)
+		// 解析类符号引用， 加载类并获取类的类对象
+		classObj := classRef.ResolveClass().JClass()
+		stack.PushRef(classObj)
+		break
+	default:
+		panic("todo: ldc!")
+	}
+}
+```
+
+### 5、通过反射获取类名
+
+> 为了支持通过反射获取类名，需要实现下面四个本地方法
+>
+> java.lang.Object.getClass()
+>
+> Java.lang.Class.getPrimitiveClass()
+>
+> java.lang.Class.getName0()
+>
+> java.lang.Class.desiredAssertionStatus0()
+
+go语言中的init函数是一个特殊函数只要包被引用， 那么init方法就会执行
+
+通过init函数注册本地方法
+
+```go
+func init() {
+	native.Register("java/lang/Object", "getClass", "()Ljava/lang/Class;", getClass)
+}
+
+func getClass(frame *rtda.Frame) {
+
+	this := frame.LocalVars().GetThis()
+	class := this.Class().JClass()
+	frame.OperandStack().PushRef(class)
+}
+```
+
+以getName0方法为例
+
+```go
+func init() {
+	native.Register("java/lang/Class", "getName0", "()Ljava/lang/String;", getName0)
+}
+func getName0(frame *rtda.Frame) {
+
+	// 从局部变量表中获取当前对象
+	this := frame.LocalVars().GetThis()
+
+	// 通过类对象的extra属性可以获取类的信息
+	class := this.Extra().(*heap.Class)
+
+	// 名称转换java类名，/ -> .
+	name := class.JavaName()
+
+	// 转换为String对象
+	jString := heap.JString(class.Loader(), name)
+
+	// 压入操作数栈
+	frame.OperandStack().PushRef(jString)
+}
+```
+
+### 6、测试本节代码
+
+```java
+public class ClassTest {
+
+    public static void main(String[] args) {
+        System.out.println(void.class.getName());
+        System.out.println(boolean.class.getName());
+        System.out.println(byte.class.getName());
+        System.out.println(char.class.getName());
+        System.out.println(short.class.getName());
+        System.out.println(int.class.getName());
+        System.out.println(long.class.getName());
+        System.out.println(float.class.getName());
+        System.out.println(double.class.getName());
+        System.out.println(Object.class.getName());
+        System.out.println(int[].class.getName());
+        System.out.println(int[][].class.getName());
+        System.out.println(Object[].class.getName());
+        System.out.println(Object[][].class.getName());
+        System.out.println(Runnable.class.getName());
+        System.out.println("abc".getClass().getName());
+        System.out.println(new double[0].getClass().getName());
+        System.out.println(new String[0].getClass().getName());
+    }
+}
+
+```
+
+执行结果如图
+
+![ch09-reflecttest.png](https://s2.loli.net/2025/07/03/MXWkqjRIw1JV2Y8.png)
+
+
+
+## 四、字符串拼接和String.intern()方法
+
+### 1、字符串拼接涉及到的Java类库
+
+> 我们在Java中使用字符串拼接时，会被优化成使用StringBuilder的append方法拼接
+>
+> 为了执行append方法，需要实现下面四个本地方法
+>
+> 1. System.arraycopy()
+> 2. Float.floatToRawIntBits()
+> 3. Double.doubleToRawLongBits()
+> 4. Double.longBitsToDouble()
+
+
+
+```go
+func init() {
+	native.Register("java/lang/System", "arraycopy", "(Ljava/lang/Object;ILjava/lang/Object;II)V", arraycopy)
+}
+
+// 对应Java本地方法   public static native void arraycopy(Object src,  int  srcPos, Object dest, int destPos, int length);
+func arraycopy(frame *rtda.Frame) {
+
+	// 从局部变量表中拿到5个参数
+	vars := frame.LocalVars()
+	src := vars.GetRef(0)
+	srcPos := vars.GetInt(1)
+	dest := vars.GetRef(2)
+	destPos := vars.GetInt(3)
+	length := vars.GetInt(4)
+
+	// 非空校验
+	if src == nil || dest == nil {
+		panic("java.lang.NullPointerException")
+	}
+
+	// 源数组和目标数组必须兼容
+	if !checkArrayCopy(src, dest) {
+		panic("java.lang.ArrayStoreException")
+	}
+
+	// 检查索引位置
+	if srcPos < 0 || destPos < 0 || length < 0 ||
+		srcPos+length > src.ArrayLength() {
+		panic("java.lang.IndexOutOfBoundsException")
+	}
+
+	// 数组拷贝
+	heap.ArrayCopy(src, dest, srcPos, destPos, length)
+}
+
+func checkArrayCopy(src *heap.Object, dest *heap.Object) bool {
+
+	srcClass := src.Class()
+	descClass := dest.Class()
+
+	// 必须都是数组
+	if !srcClass.IsArray() || !descClass.IsArray() {
+		return false
+	}
+	if srcClass.ComponentClass().IsPrimitive() ||
+		descClass.ComponentClass().IsPrimitive() {
+		return srcClass == descClass
+	}
+	return true
+}
+```
+
+```go
+func init() {
+	native.Register("java/lang/Float", "floatToRawIntBits", "(F)I", floatToRawIntBits)
+}
+
+func floatToRawIntBits(frame *rtda.Frame) {
+	value := frame.LocalVars().GetFloat(0)
+	bits := math.Float32bits(value)
+	frame.OperandStack().PushInt(int32(bits))
+}
+
+func init() {
+	native.Register("java/lang/Double", "doubleToRawLongBits", "(D)J", doubleToRawLongBits)
+	native.Register("java/lang/Double", "longBitsToDouble", "(J)D", longBitsToDouble)
+}
+
+func doubleToRawLongBits(frame *rtda.Frame) {
+	value := frame.LocalVars().GetDouble(0)
+	bits := math.Float64bits(value)
+	frame.OperandStack().PushLong(int64(bits))
+}
+
+func longBitsToDouble(frame *rtda.Frame) {
+	value := frame.LocalVars().GetLong(0)
+	frame.OperandStack().PushDouble(float64(value))
+}
+```
+
+### 2、String.intern()方法设计到的类库
+
+```go
+func init() {
+	native.Register("java/lang/String", "intern", "()Ljava/lang/String;", intern)
+}
+
+func intern(frame *rtda.Frame) {
+	this := frame.LocalVars().GetThis()
+	interned := heap.InternString(this)
+	frame.OperandStack().PushRef(interned)
+}
+```
+
+### 3、测试本节代码
+
+```java
+public class StrTest {
+
+    public static void main(String[] args) {
+        String s1 = "abc1";
+        String s2 = "abc1";
+        System.out.println(s1 == s2);   // true
+        int x = 1;
+        String s3 = "abc" + x;
+        System.out.println(s1 == s3);   // false
+        s3 = s3.intern();
+        System.out.println(s1 == s3);   // true
+    }
+}
+```
+
+测试结果如图
+
+![ch09-strtest.png](https://s2.loli.net/2025/07/04/36MUgxN2AKiwCOa.png)

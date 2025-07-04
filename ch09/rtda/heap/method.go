@@ -21,17 +21,26 @@ func (m *Method) copyAttributes(method *classfile.MemberInfo) {
 	}
 }
 
-func newMethod(class *Class, methods []*classfile.MemberInfo) []*Method {
+func newMethods(class *Class, methods []*classfile.MemberInfo) []*Method {
 
 	results := make([]*Method, len(methods))
 	for i, method := range methods {
-		results[i] = &Method{}
-		results[i].class = class
-		results[i].copyAttributes(method)
-		results[i].copyMemberInfo(method)
-		results[i].calcArgSlotCount()
+		results[i] = newMethod(class, method)
 	}
 	return results
+}
+
+func newMethod(class *Class, cfMethod *classfile.MemberInfo) *Method {
+	method := &Method{}
+	method.class = class
+	method.copyAttributes(cfMethod)
+	method.copyMemberInfo(cfMethod)
+	md := parseMethodDescriptor(method.descriptor)
+	method.calcArgSlotCount(md.parameterTypes)
+	if method.IsNative() {
+		method.injectCodeAttribute(md.returnType)
+	}
+	return method
 }
 
 func (m *Method) IsSynchronized() bool {
@@ -77,13 +86,10 @@ func (m *Method) ArgSlotCount() uint {
 }
 
 // 计算方法参数数量
-func (m *Method) calcArgSlotCount() {
-
-	// 解析方法描述符(参数类型数组和返回类型)
-	parsedDescriptor := parseMethodDescriptor(m.descriptor)
+func (m *Method) calcArgSlotCount(parameterTypes []string) {
 
 	// 遍历参数列表
-	for _, paramType := range parsedDescriptor.parameterTypes {
+	for _, paramType := range parameterTypes {
 		m.argSlotCount++
 
 		// Long 和 Double 占两个槽位
@@ -100,4 +106,30 @@ func (m *Method) calcArgSlotCount() {
 
 func (m *Method) Descriptor() string {
 	return m.descriptor
+}
+
+// 根据方法返回类型，构建本地方法的code属性，本地方法的第一个指令是0xfe
+func (m *Method) injectCodeAttribute(returnType string) {
+
+	// 最大栈深，默认4
+	m.maxStack = 4
+
+	// 布局变量表最大 = 参数个数
+	m.maxLocals = m.argSlotCount
+
+	// 根据返回类型，构建code字节码
+	switch returnType[0] {
+	case 'V':
+		m.code = []byte{0xfe, 0xb1} // return
+	case 'D':
+		m.code = []byte{0xfe, 0xaf} // dreturn
+	case 'F':
+		m.code = []byte{0xfe, 0xae} // freturn
+	case 'J':
+		m.code = []byte{0xfe, 0xad} // lreturn
+	case 'L', '[':
+		m.code = []byte{0xfe, 0xb0} // areturn
+	default:
+		m.code = []byte{0xfe, 0xac} // ireturn
+	}
 }

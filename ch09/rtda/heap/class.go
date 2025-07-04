@@ -20,7 +20,8 @@ type Class struct {
 	instanceSlotCount uint          //实例字段数量
 	staticSlotCount   uint          //静态字段数量
 	staticVars        Slots         //静态变量
-	initStarted       bool          // 是否已经初始化
+	initStarted       bool          //是否已经初始化
+	jClass            *Object       //java.lang.Class实例 - 类对象、JVM 自动创建（类加载时）、用于获取类的元数据，动态操作类、每个类在 JVM 中只有一个 Class 对象
 }
 
 func newClass(cf *classfile.ClassFile) *Class {
@@ -47,7 +48,7 @@ func newClass(cf *classfile.ClassFile) *Class {
 	class.fields = newFields(class, cf.Fields())
 
 	// 根据常量池中的方法表，封装方法信息
-	class.methods = newMethod(class, cf.Methods())
+	class.methods = newMethods(class, cf.Methods())
 	return class
 }
 
@@ -198,4 +199,17 @@ func (c *Class) getField(name string, descriptor string, isStatic bool) *Field {
 		}
 	}
 	return nil
+}
+
+func (c *Class) JClass() *Object {
+	return c.jClass
+}
+
+func (c *Class) JavaName() string {
+	return strings.Replace(c.name, "/", ".", -1)
+}
+
+func (c *Class) IsPrimitive() bool {
+	_, ok := primitiveTypes[c.name]
+	return ok
 }

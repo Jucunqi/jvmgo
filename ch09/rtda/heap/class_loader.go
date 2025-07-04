@@ -19,6 +19,12 @@ func NewClassLoader(cp *classpath.Classpath, verboseFlag bool) *ClassLoader {
 	classLoader.cp = cp
 	classLoader.verboseFlag = verboseFlag
 	classLoader.classMap = make(map[string]*Class)
+
+	// 类与类对象绑定关联
+	classLoader.loadBasicClasses()
+
+	// 加载void和基本数据类型
+	classLoader.loadPrimitiveClasses()
 	return classLoader
 }
 
@@ -30,13 +36,20 @@ func (c *ClassLoader) LoadClass(name string) *Class {
 
 	}
 
-	// 判断类是否属于数组类
+	var class *Class
 	if name[0] == '[' {
-		return c.loadArrayClass(name)
+		// 加载数组类
+		class = c.loadArrayClass(name)
+	} else {
+		// 加载非数组类
+		class = c.loadNonArrayClass(name)
 	}
 
-	// 加载非数组类
-	return c.loadNonArrayClass(name)
+	if jlClassClass, ok := c.classMap["java/lang/Class"]; ok {
+		class.jClass = jlClassClass.NewObject()
+		class.jClass.extra = class
+	}
+	return class
 }
 
 func (c *ClassLoader) loadNonArrayClass(name string) *Class {
@@ -84,6 +97,36 @@ func (c *ClassLoader) loadArrayClass(name string) *Class {
 	}
 	c.classMap[name] = class
 	return class
+}
+
+func (c *ClassLoader) loadBasicClasses() {
+
+	jlClassClass := c.LoadClass("java/lang/Class")
+	for _, class := range c.classMap {
+		if class.jClass == nil {
+			class.jClass = jlClassClass.NewObject()
+			class.jClass.extra = class
+		}
+	}
+}
+
+func (c *ClassLoader) loadPrimitiveClasses() {
+
+	for primitiveType := range primitiveTypes {
+		c.loadPrimitiveClass(primitiveType)
+	}
+}
+
+func (c *ClassLoader) loadPrimitiveClass(className string) {
+	class := &Class{
+		accessFlags: ACC_PUBLIC,
+		name:        className,
+		loader:      c,
+		initStarted: true,
+	}
+	class.jClass = c.classMap["java/lang/Class"].NewObject()
+	class.jClass.extra = class
+	c.classMap[className] = class
 }
 
 func resolveInterfaces(class *Class) {

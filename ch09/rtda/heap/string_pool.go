@@ -13,7 +13,7 @@ func JString(loader *ClassLoader, goStr string) *Object {
 	}
 
 	chars := stringToUtf16(goStr)
-	jChars := &Object{loader.LoadClass("[C"), chars}
+	jChars := &Object{loader.LoadClass("[C"), chars, nil}
 	jStr := loader.LoadClass("java/lang/String").NewObject()
 	jStr.SetRefVar("value", "[C", jChars)
 	internedStrings[goStr] = jStr
@@ -33,4 +33,17 @@ func GoString(jStr *Object) string {
 func utf16ToString(s []uint16) string {
 	runes := utf16.Decode(s)
 	return string(runes)
+}
+
+func InternString(jStr *Object) *Object {
+
+	// 如果字符串池中已经存在该字符串，则返回该字符串
+	goStr := GoString(jStr)
+	if internedStr, ok := internedStrings[goStr]; ok {
+		return internedStr
+	}
+
+	// 如果字符串池中不存在该字符串，则将该字符串添加到字符串池中
+	internedStrings[goStr] = jStr
+	return jStr
 }

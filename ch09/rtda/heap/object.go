@@ -3,6 +3,7 @@ package heap
 type Object struct {
 	class *Class
 	data  interface{} // 标识任何类型
+	extra interface{} // 作为类对象时，用于记录额外信息
 }
 
 func (o *Object) IsInstanceOf(class *Class) bool {
@@ -35,4 +36,13 @@ func (o *Object) GetRefVar(name string, descriptor string) *Object {
 	// 获取属性值
 	return slots.GetRef(field.slotId)
 
+}
+
+func (o *Object) Extra() interface{} {
+	return o.extra
+}
+
+func (o *Object) SetExtra(extra interface{}) {
+
+	o.extra = extra
 }

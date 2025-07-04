@@ -57,7 +57,7 @@ func (p *PUT_FIELD) Execute(frame *rtda.Frame) {
 			panic("java.lang.NullPointerException")
 		}
 		ref.Fields().SetDouble(slotId, val)
-	case 'L':
+	case 'L', '[':
 		val := stack.PopRef()
 		ref := stack.PopRef()
 		if ref == nil {

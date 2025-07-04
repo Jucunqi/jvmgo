@@ -37,7 +37,12 @@ func _ldc(frame *rtda.Frame, index uint) {
 		stack.PushRef(jString)
 		break
 	case *heap.ClassRef:
-		// todo
+
+		// 转成类符号引用
+		classRef := c.(*heap.ClassRef)
+		// 解析类符号引用， 加载类并获取类的类对象
+		classObj := classRef.ResolveClass().JClass()
+		stack.PushRef(classObj)
 		break
 	default:
 		panic("todo: ldc!")

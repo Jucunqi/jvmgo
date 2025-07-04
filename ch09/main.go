@@ -11,12 +11,8 @@ import (
 func main() {
 
 	// 获取cmd信息
-	//cmd := parseCmd()
-	strs := make([]string, 3)
-	strs[0] = "foo"
-	strs[1] = "bar"
-	strs[2] = "你好，世界"
-	cmd := &Cmd{args: strs, cpOption: "/Users/lucaju/Documents/workspace/go/jvmgo/out/production/jvmgo/", class: "example.src.main.java.jvmgo.ch08.PrintArgs", verboseClassFlag: false, verboseInstFlag: false}
+	cmd := parseCmd()
+	//cmd := &Cmd{cpOption: "/Users/lucaju/Documents/workspace/go/jvmgo/out/production/jvmgo/", class: "example.src.main.java.jvmgo.ch09.StrTest", verboseClassFlag: false, verboseInstFlag: false}
 	// 根据cmd参数决定后面的执行内容
 	if cmd.versionFlag {
 		fmt.Println("version 0.0.6")
