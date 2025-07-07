@@ -1,5 +1,7 @@
 package heap
 
+import "unsafe"
+
 type Object struct {
 	class *Class
 	data  interface{} // 标识任何类型
@@ -45,4 +47,14 @@ func (o *Object) Extra() interface{} {
 func (o *Object) SetExtra(extra interface{}) {
 
 	o.extra = extra
+}
+
+// HashCode 返回对象的hashcode
+// 使用对象的地址作为hashcode，这符合Java中System.identityHashCode()的语义
+func (o *Object) HashCode() int32 {
+	// 使用unsafe.Pointer获取对象的地址，然后转换为int32
+	ptr := unsafe.Pointer(o)
+	hash := uintptr(ptr)
+	// 将64位地址转换为32位hashcode
+	return int32(hash ^ (hash >> 32))
 }

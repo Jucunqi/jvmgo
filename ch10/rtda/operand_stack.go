@@ -102,3 +102,10 @@ func (o *OperandStack) PushBoolean(b bool) {
 		o.PushInt(0)
 	}
 }
+
+func (o *OperandStack) Clear() {
+	o.size = 0
+	for i := range o.slots {
+		o.slots[i].ref = nil
+	}
+}

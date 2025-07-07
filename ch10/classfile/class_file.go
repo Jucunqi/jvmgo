@@ -128,3 +128,14 @@ func (c *ClassFile) InterfaceNames() []string {
 	}
 	return interfaceNames
 }
+
+func (c *ClassFile) SourceFileAttribute() *SourceFileAttribute {
+
+	for _, attr := range c.attributes {
+		switch attr.(type) {
+		case *SourceFileAttribute:
+			return attr.(*SourceFileAttribute)
+		}
+	}
+	return nil
+}

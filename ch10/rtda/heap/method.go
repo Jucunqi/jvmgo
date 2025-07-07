@@ -5,11 +5,13 @@ import (
 )
 
 type Method struct {
-	ClassMember         //继承自ClassMember
-	maxStack     uint   //最大栈深度
-	maxLocals    uint   //最大局部变量表大小
-	code         []byte //字节码
-	argSlotCount uint   // 方法参数个数
+	ClassMember                                         //继承自ClassMember
+	maxStack        uint                                //最大栈深度
+	maxLocals       uint                                //最大局部变量表大小
+	code            []byte                              //字节码
+	argSlotCount    uint                                // 方法参数个数
+	exceptionTable  ExceptionTable                      //异常表
+	lineNumberTable *classfile.LineNumberTableAttribute // 行号表
 }
 
 func (m *Method) copyAttributes(method *classfile.MemberInfo) {
@@ -18,7 +20,36 @@ func (m *Method) copyAttributes(method *classfile.MemberInfo) {
 		m.maxStack = uint(codeAttribute.MaxStack())
 		m.maxLocals = uint(codeAttribute.MaxLocals())
 		m.code = codeAttribute.Code()
+		m.lineNumberTable = codeAttribute.LineTableAttribute()
+		m.exceptionTable = newExceptionTable(codeAttribute.ExceptionTable(), m.class.constantPool)
 	}
+}
+
+// 创建异常表
+func newExceptionTable(entries []*classfile.ExceptionTableEntry, cp *ConstantPool) ExceptionTable {
+
+	// 创建数组对象
+	table := make([]*ExceptionHandler, len(entries))
+
+	// 循环遍历code属性中的异常表
+	for i, entry := range entries {
+		table[i] = &ExceptionHandler{
+			startPc:   int(entry.StartPc()),
+			endPc:     int(entry.EndPc()),
+			handlerPc: int(entry.HandlerPc()),
+			catchType: getCatchType(int(entry.CatchType()), cp),
+		}
+	}
+	return table
+}
+
+func getCatchType(index int, cp *ConstantPool) *ClassRef {
+
+	if index == 0 {
+		return nil
+	}
+	return cp.GetConstant(uint(index)).(*ClassRef)
+
 }
 
 func newMethods(class *Class, methods []*classfile.MemberInfo) []*Method {
@@ -132,4 +163,23 @@ func (m *Method) injectCodeAttribute(returnType string) {
 	default:
 		m.code = []byte{0xfe, 0xac} // ireturn
 	}
+}
+
+// FindExceptionHandler 查询异常跳转pc
+func (m *Method) FindExceptionHandler(exClass *Class, pc int) int {
+	handler := m.exceptionTable.findExceptionHandler(exClass, pc)
+	if handler != nil {
+		return handler.handlerPc
+	}
+	return -1
+}
+
+func (m *Method) GetLineNumber(pc int) int {
+	if m.IsNative() {
+		return -2
+	}
+	if m.lineNumberTable == nil {
+		return -1
+	}
+	return m.lineNumberTable.GetLineNumber(pc)
 }

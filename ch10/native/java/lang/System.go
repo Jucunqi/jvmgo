@@ -6,10 +6,6 @@ import (
 	"github.com/Jucunqi/jvmgo/ch10/rtda/heap"
 )
 
-func init() {
-	native.Register("java/lang/System", "arraycopy", "(Ljava/lang/Object;ILjava/lang/Object;II)V", arraycopy)
-}
-
 // 对应Java本地方法   public static native void arraycopy(Object src,  int  srcPos, Object dest, int destPos, int length);
 func arraycopy(frame *rtda.Frame) {
 
@@ -55,4 +51,16 @@ func checkArrayCopy(src *heap.Object, dest *heap.Object) bool {
 		return srcClass == descClass
 	}
 	return true
+}
+
+func identityHashCode(frame *rtda.Frame) {
+	vars := frame.LocalVars()
+	ref := vars.GetRef(0)
+	hash := ref.HashCode()
+	frame.OperandStack().PushInt(hash)
+}
+
+func init() {
+	native.Register("java/lang/System", "arraycopy", "(Ljava/lang/Object;ILjava/lang/Object;II)V", arraycopy)
+	native.Register("java/lang/System", "identityHashCode", "(Ljava/lang/Object;)I", identityHashCode)
 }

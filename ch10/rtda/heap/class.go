@@ -22,6 +22,7 @@ type Class struct {
 	staticVars        Slots         //静态变量
 	initStarted       bool          //是否已经初始化
 	jClass            *Object       //java.lang.Class实例 - 类对象、JVM 自动创建（类加载时）、用于获取类的元数据，动态操作类、每个类在 JVM 中只有一个 Class 对象
+	sourceFile        string        //文件属性
 }
 
 func newClass(cf *classfile.ClassFile) *Class {
@@ -49,7 +50,17 @@ func newClass(cf *classfile.ClassFile) *Class {
 
 	// 根据常量池中的方法表，封装方法信息
 	class.methods = newMethods(class, cf.Methods())
+
+	// 封装文件属性信息
+	class.sourceFile = getSourceFile(cf)
 	return class
+}
+
+func getSourceFile(cf *classfile.ClassFile) string {
+	if sfAttr := cf.SourceFileAttribute(); sfAttr != nil {
+		return sfAttr.FileName()
+	}
+	return "UnKnown"
 }
 
 func (c *Class) IsPublic() bool {
@@ -212,4 +223,8 @@ func (c *Class) JavaName() string {
 func (c *Class) IsPrimitive() bool {
 	_, ok := primitiveTypes[c.name]
 	return ok
+}
+
+func (c *Class) SourceFile() string {
+	return c.sourceFile
 }

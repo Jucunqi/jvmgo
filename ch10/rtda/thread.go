@@ -50,3 +50,11 @@ func (t *Thread) TopFrame() *Frame {
 func (t *Thread) IsStackEmpty() bool {
 	return t.stack.isEmpty()
 }
+
+func (t *Thread) ClearStack() {
+	t.stack.Clear()
+}
+
+func (t *Thread) GetFrames() []*Frame {
+	return t.stack.GetFrames()
+}

@@ -26,6 +26,10 @@
 
 
 
+# 笔记部分
+
+
+
 # 第一章 命令行工具
 
 ## 一、环境准备
@@ -3506,3 +3510,157 @@ public class StrTest {
 测试结果如图
 
 ![ch09-strtest.png](https://s2.loli.net/2025/07/04/36MUgxN2AKiwCOa.png)
+
+
+
+# 第十章 异常处理
+
+## 一、概述
+
+> Java中异常分为两类：Checked 和 Unchecked
+>
+> Unchecked包括：java.lang.RuntimeException、java.lang.Error以及他们的子类，其他的异常通常都是checked，所有异常最终都继承子java.lang.Throwable
+
+
+
+## 二、异常抛出
+
+> Java 代码中通过 throw关键字抛出
+>
+> 对应字节码指令：athrow
+
+
+
+## 三、异常处理表
+
+> 异常处理通过try-catch实现
+>
+> 根据异常处理表找到对应执行的逻辑
+>
+> 异常处理表的每一项都包含3个信息：处理哪部分代码抛出的异常，哪类异常，异常处理代码在哪里
+
+```go
+type ExceptionHandler struct {
+	startPc   int       // 其实pc
+	endPc     int       // 结束pc
+	handlerPc int       // 跳转pc
+	catchType *ClassRef // 捕获类型
+}
+
+type ExceptionTable []*ExceptionHandler
+
+func (t ExceptionTable) findExceptionHandler(exClass *Class, pc int) *ExceptionHandler {
+
+	for _, handler := range t {
+		// 判断pc是否处于当前异常类的起始和结束区间内
+		if pc > handler.startPc && pc < handler.endPc {
+			if handler.catchType == nil {
+				return handler // catch - all
+			}
+			class := handler.catchType.ResolveClass()
+			if class == exClass || exClass.IsSubClassOf(class) {
+				// 并且处理类型是exClass的子类
+				return handler
+			}
+		}
+	}
+	return nil
+}
+```
+
+## 四、实现athrow指令
+
+> 从操作数栈中，弹出异常对象引用
+>
+> 查看是否可以找到并跳转到异常处理代码
+>
+> 操作数栈清空，把异常对象引用放入栈顶
+
+```go
+func findAndGotoExceptionHandler(thread *rtda.Thread, ex *heap.Object) bool {
+	for {
+
+		// 获取线程栈顶栈帧
+		frame := thread.CurrentFrame()
+
+		// 获取执行指令计数
+		pc := frame.NextPC() - 1
+
+		// 获取方法的异常处理pc
+		handlerPc := frame.Method().FindExceptionHandler(ex.Class(), pc)
+		if handlerPc > 0 {
+
+			// 如果异常处理pc>0 说明当前方法存在catch当前异常的逻辑
+			stack := frame.OperandStack()
+
+			// 清空操作数栈
+			stack.Clear()
+
+			// 把异常对象放入操作数栈
+			stack.PushRef(ex)
+
+			// 设置程序计数器执行行号
+			frame.SetNextPC(handlerPc)
+			return true
+		}
+
+		// 弹出当前栈帧
+		thread.PopFrame()
+
+		// 循环停止条件 - 线程中没有方法栈帧
+		if thread.IsStackEmpty() {
+			break
+		}
+	}
+	return false
+}
+```
+
+## 五、Java虚拟机栈信息
+
+> 实现fillInStackTrace本地方法，具体逻辑不在给出
+
+```go
+func init() {
+	native.Register("java/lang/Throwable", "fillInStackTrace", "(I)Ljava/lang/Throwable;", fillInStackTrace)
+}
+
+type StackTraceElement struct {
+	fileName   string // 文件
+	className  string // 类名
+	methodName string // 方法名
+	lineNumber int    // 行号
+}
+```
+
+## 六、测试代码
+
+```java
+public class ParseIntTest {
+
+    public static void main(String[] args) {
+        foo(args);
+    }
+
+    private static void foo(String[] args) {
+        try {
+            bar(args);
+        } catch (NumberFormatException e) {
+            System.out.println(e.getMessage());
+        }
+    }
+
+    private static void bar(String[] args) {
+        if (args.length == 0) {
+            throw new IndexOutOfBoundsException("no args!");
+        }
+        int x = Integer.parseInt(args[0]);
+        System.out.println(x);
+    }
+}
+
+```
+
+测试结果，如图
+
+![ch10-test.png](https://s2.loli.net/2025/07/07/6cwruQqNiEoG5Vn.png)
