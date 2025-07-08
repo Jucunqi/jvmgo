@@ -109,3 +109,7 @@ func (o *OperandStack) Clear() {
 		o.slots[i].ref = nil
 	}
 }
+
+func NewOperandStack(maxStack uint) *OperandStack {
+	return newOperandStack(maxStack)
+}

@@ -57,3 +57,9 @@ func (c *Field) Descriptor() string {
 func (c *Field) Class() *Class {
 	return c.class
 }
+
+// reflection
+func (c *Field) Type() *Class {
+	className := toClassName(c.descriptor)
+	return c.class.loader.LoadClass(className)
+}

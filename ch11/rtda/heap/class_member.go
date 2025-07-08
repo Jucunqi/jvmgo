@@ -3,10 +3,12 @@ package heap
 import "github.com/Jucunqi/jvmgo/ch11/classfile"
 
 type ClassMember struct {
-	accessFlags uint16 // 访问标识符
-	name        string // 名称
-	descriptor  string // 描述符
-	class       *Class // 所属类
+	accessFlags    uint16 // 访问标识符
+	name           string // 名称
+	descriptor     string // 描述符
+	signature      string
+	class          *Class // 所属类
+	annotationData []byte // RuntimeVisibleAnnotations_attribute
 }
 
 func (c *ClassMember) copyMemberInfo(info *classfile.MemberInfo) {
@@ -49,4 +51,29 @@ func (c *ClassMember) IsFinal() bool {
 }
 func (c *ClassMember) IsSynthetic() bool {
 	return c.accessFlags&ACC_SYNTHETIC != 0
+}
+
+// getters
+func (self *ClassMember) Name() string {
+	return self.name
+}
+
+func (self *ClassMember) Descriptor() string {
+	return self.descriptor
+}
+func (self *ClassMember) Class() *Class {
+	return self.class
+}
+
+// getters
+func (self *ClassMember) AccessFlags() uint16 {
+	return self.accessFlags
+}
+
+func (self *ClassMember) Signature() string {
+	return self.signature
+}
+
+func (self *ClassMember) AnnotationData() []byte {
+	return self.annotationData
 }

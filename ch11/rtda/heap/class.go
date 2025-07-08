@@ -228,3 +228,79 @@ func (c *Class) IsPrimitive() bool {
 func (c *Class) SourceFile() string {
 	return c.sourceFile
 }
+
+func (c *Class) SetRefVar(fieldName, fieldDescriptor string, ref *Object) {
+	field := c.getField(fieldName, fieldDescriptor, true)
+	c.staticVars.SetRef(field.slotId, ref)
+}
+func (c *Class) GetStaticMethod(name, descriptor string) *Method {
+	return c.getMethod(name, descriptor, true)
+}
+
+func (self *Class) getMethod(name, descriptor string, isStatic bool) *Method {
+	for c := self; c != nil; c = c.superClass {
+		for _, method := range c.methods {
+			if method.IsStatic() == isStatic &&
+				method.name == name &&
+				method.descriptor == descriptor {
+
+				return method
+			}
+		}
+	}
+	return nil
+}
+
+func (self *Class) GetInstanceMethod(name, descriptor string) *Method {
+	return self.getMethod(name, descriptor, false)
+}
+
+func (c *Class) AccessFlags() uint16 {
+	return c.accessFlags
+}
+
+func (c *Class) GetFields(publicOnly bool) []*Field {
+	if publicOnly {
+		publicFields := make([]*Field, 0, len(c.fields))
+		for _, field := range c.fields {
+			if field.IsPublic() {
+				publicFields = append(publicFields, field)
+			}
+		}
+		return publicFields
+	} else {
+		return c.fields
+	}
+}
+
+func (self *Class) GetConstructor(descriptor string) *Method {
+	return self.GetInstanceMethod("<init>", descriptor)
+}
+
+func (self *Class) GetConstructors(publicOnly bool) []*Method {
+	constructors := make([]*Method, 0, len(self.methods))
+	for _, method := range self.methods {
+		if method.isConstructor() {
+			if !publicOnly || method.IsPublic() {
+				constructors = append(constructors, method)
+			}
+		}
+	}
+	return constructors
+}
+
+func (self *Class) GetMethods(publicOnly bool) []*Method {
+	methods := make([]*Method, 0, len(self.methods))
+	for _, method := range self.methods {
+		if !method.isClinit() && !method.isConstructor() {
+			if !publicOnly || method.IsPublic() {
+				methods = append(methods, method)
+			}
+		}
+	}
+	return methods
+}
+
+func (self *Class) Interfaces() []*Class {
+	return self.interfaces
+}

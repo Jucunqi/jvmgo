@@ -43,9 +43,12 @@ func (i *INVOKE_SPECIAL) Execute(frame *rtda.Frame) {
 	}
 
 	// 确保protected方法只能被声明该方法的类或子类调用
-	if resolvedMethod.IsProtected() && resolvedMethod.Class().IsSuperClassOf(currentClass) &&
+	if resolvedMethod.IsProtected() &&
+		resolvedMethod.Class().IsSuperClassOf(currentClass) &&
 		resolvedMethod.Class().GetPackageName() != currentClass.GetPackageName() &&
-		ref.Class() != currentClass && ref.Class().IsSubClassOf(currentClass) {
+		ref.Class() != currentClass &&
+		!ref.Class().IsSubClassOf(currentClass) {
+
 		panic("java.lang.IllegalAccessError")
 	}
 

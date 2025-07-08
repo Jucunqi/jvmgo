@@ -17,6 +17,11 @@ func (i *INSTANCE_OF) Execute(frame *rtda.Frame) {
 	stack := frame.OperandStack()
 	ref := stack.PopRef()
 
+	if ref == nil {
+		stack.PushInt(0)
+		return
+	}
+
 	// 在常量池中根据操作数获取类或者接口
 	cp := frame.Method().Class().ConstantPool()
 

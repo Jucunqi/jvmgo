@@ -3,7 +3,11 @@ package reserved
 import (
 	"github.com/Jucunqi/jvmgo/ch11/instructions/base"
 	"github.com/Jucunqi/jvmgo/ch11/native"
+	_ "github.com/Jucunqi/jvmgo/ch11/native/java/io"
 	_ "github.com/Jucunqi/jvmgo/ch11/native/java/lang"
+	_ "github.com/Jucunqi/jvmgo/ch11/native/java/security"
+	_ "github.com/Jucunqi/jvmgo/ch11/native/sun/misc"
+	_ "github.com/Jucunqi/jvmgo/ch11/native/sun/reflect"
 	"github.com/Jucunqi/jvmgo/ch11/rtda"
 )
 

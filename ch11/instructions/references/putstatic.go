@@ -62,7 +62,8 @@ func (p *PUT_STATIC) Execute(frame *rtda.Frame) {
 	case 'D':
 		slots.SetDouble(slotId, stack.PopDouble())
 	case 'L', '[':
-		slots.SetRef(slotId, stack.PopRef())
+		ref := stack.PopRef()
+		slots.SetRef(slotId, ref)
 
 	}
 }

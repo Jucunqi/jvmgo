@@ -39,7 +39,7 @@ func (b *BranchInstruction) FetchOperands(reader *BytecodeReader) {
 
 func (i *Index8Instruction) FetchOperands(reader *BytecodeReader) {
 
-	i.Index = uint(int(reader.ReadInt8()))
+	i.Index = uint(reader.ReadUInt8())
 
 }
 

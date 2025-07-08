@@ -21,11 +21,10 @@ func (l *LineNumberTableAttribute) readInfo(reader *ClassReader) {
 	l.lineNumberTable = lineNumberTable
 }
 
-func (l *LineNumberTableAttribute) GetLineNumber(pc int) int {
-
-	for i := len(l.lineNumberTable) - 1; i >= 0; i-- {
-		entry := l.lineNumberTable[i]
-		if pc > int(entry.startPc) {
+func (self *LineNumberTableAttribute) GetLineNumber(pc int) int {
+	for i := len(self.lineNumberTable) - 1; i >= 0; i-- {
+		entry := self.lineNumberTable[i]
+		if pc >= int(entry.startPc) {
 			return int(entry.lineNumber)
 		}
 	}

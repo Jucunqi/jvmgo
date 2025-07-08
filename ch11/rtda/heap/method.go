@@ -5,13 +5,17 @@ import (
 )
 
 type Method struct {
-	ClassMember                                         //继承自ClassMember
-	maxStack        uint                                //最大栈深度
-	maxLocals       uint                                //最大局部变量表大小
-	code            []byte                              //字节码
-	argSlotCount    uint                                // 方法参数个数
-	exceptionTable  ExceptionTable                      //异常表
-	lineNumberTable *classfile.LineNumberTableAttribute // 行号表
+	ClassMember                                                 //继承自ClassMember
+	maxStack                uint                                //最大栈深度
+	maxLocals               uint                                //最大局部变量表大小
+	code                    []byte                              //字节码
+	argSlotCount            uint                                // 方法参数个数
+	exceptionTable          ExceptionTable                      //异常表
+	lineNumberTable         *classfile.LineNumberTableAttribute // 行号表
+	parsedDescriptor        *MethodDescriptor
+	exceptions              *classfile.ExceptionAttribute
+	parameterAnnotationData []byte // RuntimeVisibleParameterAnnotations_attribute
+	annotationDefaultData   []byte // AnnotationDefault_attribute
 }
 
 func (m *Method) copyAttributes(method *classfile.MemberInfo) {
@@ -23,6 +27,10 @@ func (m *Method) copyAttributes(method *classfile.MemberInfo) {
 		m.lineNumberTable = codeAttribute.LineTableAttribute()
 		m.exceptionTable = newExceptionTable(codeAttribute.ExceptionTable(), m.class.constantPool)
 	}
+	m.exceptions = method.ExceptionsAttribute()
+	m.annotationData = method.RuntimeVisibleAnnotationsAttributeData()
+	m.parameterAnnotationData = method.RuntimeVisibleParameterAnnotationsAttributeData()
+	m.annotationDefaultData = method.AnnotationDefaultAttributeData()
 }
 
 // 创建异常表
@@ -67,6 +75,7 @@ func newMethod(class *Class, cfMethod *classfile.MemberInfo) *Method {
 	method.copyAttributes(cfMethod)
 	method.copyMemberInfo(cfMethod)
 	md := parseMethodDescriptor(method.descriptor)
+	method.parsedDescriptor = md
 	method.calcArgSlotCount(md.parameterTypes)
 	if method.IsNative() {
 		method.injectCodeAttribute(md.returnType)
@@ -182,4 +191,59 @@ func (m *Method) GetLineNumber(pc int) int {
 		return -1
 	}
 	return m.lineNumberTable.GetLineNumber(pc)
+}
+
+func (self *Method) isConstructor() bool {
+	return !self.IsStatic() && self.name == "<init>"
+}
+func (self *Method) isClinit() bool {
+	return self.IsStatic() && self.name == "<clinit>"
+}
+
+// reflection
+func (self *Method) ParameterTypes() []*Class {
+	if self.argSlotCount == 0 {
+		return nil
+	}
+
+	paramTypes := self.parsedDescriptor.parameterTypes
+	paramClasses := make([]*Class, len(paramTypes))
+	for i, paramType := range paramTypes {
+		paramClassName := toClassName(paramType)
+		paramClasses[i] = self.class.loader.LoadClass(paramClassName)
+	}
+
+	return paramClasses
+}
+func (self *Method) ReturnType() *Class {
+	returnType := self.parsedDescriptor.returnType
+	returnClassName := toClassName(returnType)
+	return self.class.loader.LoadClass(returnClassName)
+}
+func (self *Method) ExceptionTypes() []*Class {
+	if self.exceptions == nil {
+		return nil
+	}
+
+	exIndexTable := self.exceptions.ExceptionIndexTable()
+	exClasses := make([]*Class, len(exIndexTable))
+	cp := self.class.constantPool
+
+	for i, exIndex := range exIndexTable {
+		classRef := cp.GetConstant(uint(exIndex)).(*ClassRef)
+		exClasses[i] = classRef.ResolveClass()
+	}
+	return exClasses
+}
+
+func (self *Method) ParameterAnnotationData() []byte {
+	return self.parameterAnnotationData
+}
+
+func (self *Method) AnnotationDefaultData() []byte {
+	return self.annotationDefaultData
+}
+
+func (self *Method) ParsedDescriptor() *MethodDescriptor {
+	return self.parsedDescriptor
 }

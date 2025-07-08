@@ -2,50 +2,19 @@ package main
 
 import (
 	"fmt"
-	"github.com/Jucunqi/jvmgo/ch11/rtda/heap"
 
 	"github.com/Jucunqi/jvmgo/ch11/instructions"
 	"github.com/Jucunqi/jvmgo/ch11/instructions/base"
 	"github.com/Jucunqi/jvmgo/ch11/rtda"
 )
 
-func interpret(method *heap.Method, logInst bool, args []string) {
-
-	// 创建一个线程
-	thread := rtda.NewThread()
-
-	// 创建一个方法栈帧
-	frame := thread.NewFrame(method)
-
-	// 压入栈
-	thread.PushFrame(frame)
-
-	// 解析命令参数args
-	jArgs := createArgsArray(method.Class().Loader(), args)
-
-	// 将参数放入局部变量表
-	frame.LocalVars().SetRef(0, jArgs)
+func interpret(thread *rtda.Thread, logInst bool) {
 
 	// 异常处理
 	defer catchErr(thread)
 
 	// 循环执行指令
 	loop(thread, logInst)
-}
-
-func createArgsArray(loader *heap.ClassLoader, args []string) *heap.Object {
-
-	// 创建一个String类型数组
-	class := loader.LoadClass("java/lang/String")
-	array := class.ArrayClass().NewArray(uint(len(args)))
-	refs := array.Refs()
-
-	// 遍历命令行参数，给数组赋值
-	for i, arg := range args {
-		jString := heap.JString(loader, arg)
-		refs[i] = jString
-	}
-	return array
 }
 
 func loop(thread *rtda.Thread, logInst bool) {

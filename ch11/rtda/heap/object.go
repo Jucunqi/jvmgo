@@ -9,7 +9,7 @@ type Object struct {
 }
 
 func (o *Object) IsInstanceOf(class *Class) bool {
-	return class.isAssignableFrom(o.class)
+	return class.IsAssignableFrom(o.class)
 }
 
 func (o *Object) Fields() Slots {
@@ -40,6 +40,10 @@ func (o *Object) GetRefVar(name string, descriptor string) *Object {
 
 }
 
+func (o *Object) Data() interface{} {
+	return o.data
+}
+
 func (o *Object) Extra() interface{} {
 	return o.extra
 }
@@ -57,4 +61,73 @@ func (o *Object) HashCode() int32 {
 	hash := uintptr(ptr)
 	// 将64位地址转换为32位hashcode
 	return int32(hash ^ (hash >> 32))
+}
+
+func (o *Object) Clone() *Object {
+	return &Object{
+		class: o.class,
+		data:  o.cloneData(),
+	}
+}
+
+func (self *Object) cloneData() interface{} {
+	switch self.data.(type) {
+	case []int8:
+		elements := self.data.([]int8)
+		elements2 := make([]int8, len(elements))
+		copy(elements2, elements)
+		return elements2
+	case []int16:
+		elements := self.data.([]int16)
+		elements2 := make([]int16, len(elements))
+		copy(elements2, elements)
+		return elements2
+	case []uint16:
+		elements := self.data.([]uint16)
+		elements2 := make([]uint16, len(elements))
+		copy(elements2, elements)
+		return elements2
+	case []int32:
+		elements := self.data.([]int32)
+		elements2 := make([]int32, len(elements))
+		copy(elements2, elements)
+		return elements2
+	case []int64:
+		elements := self.data.([]int64)
+		elements2 := make([]int64, len(elements))
+		copy(elements2, elements)
+		return elements2
+	case []float32:
+		elements := self.data.([]float32)
+		elements2 := make([]float32, len(elements))
+		copy(elements2, elements)
+		return elements2
+	case []float64:
+		elements := self.data.([]float64)
+		elements2 := make([]float64, len(elements))
+		copy(elements2, elements)
+		return elements2
+	case []*Object:
+		elements := self.data.([]*Object)
+		elements2 := make([]*Object, len(elements))
+		copy(elements2, elements)
+		return elements2
+	default: // []Slot
+		slots := self.data.(Slots)
+		slots2 := newSlots(uint(len(slots)))
+		copy(slots2, slots)
+		return slots2
+	}
+}
+
+func (o *Object) GetIntVar(name, descriptor string) int32 {
+	field := o.class.getField(name, descriptor, false)
+	slots := o.data.(Slots)
+	return slots.GetInt(field.slotId)
+}
+
+func (o *Object) SetIntVar(name, descriptor string, val int32) {
+	field := o.class.getField(name, descriptor, false)
+	slots := o.data.(Slots)
+	slots.SetInt(field.slotId, val)
 }
